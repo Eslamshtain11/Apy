@@ -28,13 +28,34 @@ begin
 end;
 $$;
 
-create or replace function set_updated_at()
-returns trigger as $$
+create or replace function public.set_updated_at()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
 begin
   new.updated_at = now();
   return new;
 end;
-$$ language plpgsql;
+$$;
+
+create or replace function public.ensure_owner_id()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if new.user_id is null then
+    new.user_id := auth.uid();
+  end if;
+  if new.user_id is null then
+    raise exception 'user_id is required';
+  end if;
+  return new;
+end;
+$$;
 
 begin;
 
@@ -77,14 +98,14 @@ create table users (
 create trigger users_set_updated
 before update on users
 for each row
-execute function set_updated_at();
+execute function public.set_updated_at();
 
 -- -----------------------------------------------------------------
 -- Groups represent classes or cohorts (scoped per user)
 -- -----------------------------------------------------------------
 create table groups (
   id uuid primary key default gen_random_uuid(),
-  user_id uuid not null default auth.uid(),
+  user_id uuid not null,
   name text not null,
   description text,
   due_total numeric(12,2) not null default 0 check (due_total >= 0),
@@ -92,10 +113,15 @@ create table groups (
   updated_at timestamptz not null default now()
 );
 
+create trigger groups_set_owner
+before insert on groups
+for each row
+execute function public.ensure_owner_id();
+
 create trigger groups_set_updated
 before update on groups
 for each row
-execute function set_updated_at();
+execute function public.set_updated_at();
 
 create unique index if not exists idx_groups_user_name on groups(user_id, name);
 create index if not exists idx_groups_user on groups(user_id);
@@ -105,7 +131,7 @@ create index if not exists idx_groups_user on groups(user_id);
 -- -----------------------------------------------------------------
 create table students (
   id uuid primary key default gen_random_uuid(),
-  user_id uuid not null default auth.uid(),
+  user_id uuid not null,
   full_name text not null,
   phone text,
   group_id uuid references groups(id) on delete set null,
@@ -115,10 +141,15 @@ create table students (
   constraint students_unique_per_user unique (user_id, full_name, coalesce(phone, ''))
 );
 
+create trigger students_set_owner
+before insert on students
+for each row
+execute function public.ensure_owner_id();
+
 create trigger students_set_updated
 before update on students
 for each row
-execute function set_updated_at();
+execute function public.set_updated_at();
 
 create index if not exists idx_students_user on students(user_id);
 create index if not exists idx_students_group on students(group_id);
@@ -128,7 +159,7 @@ create index if not exists idx_students_group on students(group_id);
 -- -----------------------------------------------------------------
 create table payments (
   id uuid primary key default gen_random_uuid(),
-  user_id uuid not null default auth.uid(),
+  user_id uuid not null,
   student_id uuid references students(id) on delete set null,
   group_id uuid references groups(id) on delete set null,
   amount numeric(12,2) not null check (amount > 0),
@@ -139,10 +170,15 @@ create table payments (
   updated_at timestamptz not null default now()
 );
 
+create trigger payments_set_owner
+before insert on payments
+for each row
+execute function public.ensure_owner_id();
+
 create trigger payments_set_updated
 before update on payments
 for each row
-execute function set_updated_at();
+execute function public.set_updated_at();
 
 create index if not exists idx_payments_user on payments(user_id);
 create index if not exists idx_payments_student on payments(student_id);
@@ -154,7 +190,7 @@ create index if not exists idx_payments_paid_at on payments(paid_at);
 -- -----------------------------------------------------------------
 create table expenses (
   id uuid primary key default gen_random_uuid(),
-  user_id uuid not null default auth.uid(),
+  user_id uuid not null,
   description text not null,
   amount numeric(12,2) not null check (amount >= 0),
   spent_at date not null default current_date,
@@ -162,10 +198,15 @@ create table expenses (
   updated_at timestamptz not null default now()
 );
 
+create trigger expenses_set_owner
+before insert on expenses
+for each row
+execute function public.ensure_owner_id();
+
 create trigger expenses_set_updated
 before update on expenses
 for each row
-execute function set_updated_at();
+execute function public.set_updated_at();
 
 create index if not exists idx_expenses_user on expenses(user_id);
 create index if not exists idx_expenses_spent_at on expenses(spent_at);
@@ -175,7 +216,7 @@ create index if not exists idx_expenses_spent_at on expenses(spent_at);
 -- -----------------------------------------------------------------
 create table guest_codes (
   id uuid primary key default gen_random_uuid(),
-  user_id uuid not null default auth.uid(),
+  user_id uuid not null,
   code text not null,
   active boolean not null default true,
   created_at timestamptz not null default now(),
@@ -184,10 +225,15 @@ create table guest_codes (
   constraint guest_codes_unique_per_user unique (user_id, code)
 );
 
+create trigger guest_codes_set_owner
+before insert on guest_codes
+for each row
+execute function public.ensure_owner_id();
+
 create trigger guest_codes_set_updated
 before update on guest_codes
 for each row
-execute function set_updated_at();
+execute function public.set_updated_at();
 
 create index if not exists idx_guest_codes_user on guest_codes(user_id);
 create index if not exists idx_guest_codes_active on guest_codes(active);
@@ -204,7 +250,7 @@ create table settings (
 create trigger settings_set_updated
 before update on settings
 for each row
-execute function set_updated_at();
+execute function public.set_updated_at();
 
 -- -----------------------------------------------------------------
 -- Aggregated view for paid totals per group (scoped per user)
@@ -217,6 +263,9 @@ select
 from groups g
 left join payments p on p.group_id = g.id and p.user_id = g.user_id
 group by g.user_id, g.id;
+
+alter view group_paid_totals set (security_invoker = true);
+grant select on group_paid_totals to authenticated;
 
 -- -----------------------------------------------------------------
 -- Row Level Security policies (owner-only)

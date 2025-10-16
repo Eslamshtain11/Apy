@@ -12,6 +12,35 @@ begin;
 create extension if not exists "uuid-ossp";
 create extension if not exists pgcrypto;
 
+create or replace function public.set_updated_at()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  new.updated_at = now();
+  return new;
+end;
+$$;
+
+create or replace function public.ensure_owner_id()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if new.user_id is null then
+    new.user_id := auth.uid();
+  end if;
+  if new.user_id is null then
+    raise exception 'user_id is required';
+  end if;
+  return new;
+end;
+$$;
+
 drop function if exists auth.auto_confirm_internal_user();
 create or replace function public.auto_confirm_internal_user()
 returns trigger
@@ -44,41 +73,267 @@ set email_confirmed_at = now(),
 where email like '%@smart-accountant.local'
   and (email_confirmed_at is null or confirmed_at is null);
 
+create table if not exists users (
+  id uuid primary key references auth.users(id) on delete cascade,
+  name text,
+  phone text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+alter table users
+  alter column created_at set default now(),
+  alter column updated_at set default now();
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_trigger where tgname = 'users_set_updated'
+  ) then
+    create trigger users_set_updated
+    before update on users
+    for each row
+    execute function public.set_updated_at();
+  end if;
+end;
+$$;
+
 -- --------------------------------------------------------------
 -- Ensure primary domain tables contain user_id + indices
 -- --------------------------------------------------------------
 alter table if exists groups
-  add column if not exists user_id uuid not null default auth.uid(),
+  add column if not exists user_id uuid,
   add column if not exists due_total numeric(12,2) not null default 0,
   add column if not exists created_at timestamptz not null default now(),
   add column if not exists updated_at timestamptz not null default now();
 
+do $$
+begin
+  if exists (
+    select 1 from information_schema.columns
+    where table_name = 'groups' and column_name = 'user_id'
+  ) then
+    if exists (select 1 from groups where user_id is null limit 1) then
+      raise notice 'groups contains rows with NULL user_id. Please backfill them manually and re-run this patch to enforce NOT NULL.';
+    else
+      alter table groups alter column user_id set not null;
+    end if;
+  end if;
+end;
+$$;
+
+do $$
+begin
+  if not exists (select 1 from pg_trigger where tgname = 'groups_set_owner') then
+    create trigger groups_set_owner
+    before insert on groups
+    for each row
+    execute function public.ensure_owner_id();
+  end if;
+  if not exists (select 1 from pg_trigger where tgname = 'groups_set_updated') then
+    create trigger groups_set_updated
+    before update on groups
+    for each row
+    execute function public.set_updated_at();
+  end if;
+end;
+$$;
+
+do $$
+begin
+  if exists (
+    select 1 from information_schema.columns
+    where table_name = 'students' and column_name = 'name'
+  ) and not exists (
+    select 1 from information_schema.columns
+    where table_name = 'students' and column_name = 'full_name'
+  ) then
+    alter table students rename column name to full_name;
+  end if;
+end;
+$$;
+
 alter table if exists students
-  add column if not exists user_id uuid not null default auth.uid(),
+  add column if not exists full_name text,
+  add column if not exists user_id uuid,
   add column if not exists created_at timestamptz not null default now(),
   add column if not exists updated_at timestamptz not null default now();
 
+alter table if exists students
+  alter column full_name set not null,
+  alter column user_id drop not null;
+
+do $$
+begin
+  if exists (select 1 from students where user_id is null limit 1) then
+    raise notice 'students contains rows with NULL user_id. Please backfill them manually, then run ALTER TABLE students ALTER COLUMN user_id SET NOT NULL.';
+  else
+    begin
+      alter table students alter column user_id set not null;
+    exception when others then
+      raise notice 'Unable to mark students.user_id as NOT NULL automatically: %', sqlerrm;
+    end;
+  end if;
+end;
+$$;
+
+do $$
+begin
+  if not exists (select 1 from pg_trigger where tgname = 'students_set_owner') then
+    create trigger students_set_owner
+    before insert on students
+    for each row
+    execute function public.ensure_owner_id();
+  end if;
+  if not exists (select 1 from pg_trigger where tgname = 'students_set_updated') then
+    create trigger students_set_updated
+    before update on students
+    for each row
+    execute function public.set_updated_at();
+  end if;
+end;
+$$;
+
 alter table if exists payments
-  add column if not exists user_id uuid not null default auth.uid(),
+  add column if not exists user_id uuid,
   add column if not exists created_at timestamptz not null default now(),
   add column if not exists updated_at timestamptz not null default now(),
   add column if not exists method text not null default 'cash',
   add column if not exists paid_at date not null default current_date;
 
+do $$
+begin
+  if exists (select 1 from payments where user_id is null limit 1) then
+    raise notice 'payments contains rows with NULL user_id. Please backfill them manually, then run ALTER TABLE payments ALTER COLUMN user_id SET NOT NULL.';
+  else
+    begin
+      alter table payments alter column user_id set not null;
+    exception when others then
+      raise notice 'Unable to mark payments.user_id as NOT NULL automatically: %', sqlerrm;
+    end;
+  end if;
+end;
+$$;
+
+do $$
+begin
+  if not exists (select 1 from pg_trigger where tgname = 'payments_set_owner') then
+    create trigger payments_set_owner
+    before insert on payments
+    for each row
+    execute function public.ensure_owner_id();
+  end if;
+  if not exists (select 1 from pg_trigger where tgname = 'payments_set_updated') then
+    create trigger payments_set_updated
+    before update on payments
+    for each row
+    execute function public.set_updated_at();
+  end if;
+end;
+$$;
+
+do $$
+begin
+  if exists (
+    select 1 from information_schema.columns
+    where table_name = 'expenses' and column_name = 'date'
+  ) and not exists (
+    select 1 from information_schema.columns
+    where table_name = 'expenses' and column_name = 'spent_at'
+  ) then
+    alter table expenses rename column date to spent_at;
+  end if;
+end;
+$$;
+
 alter table if exists expenses
-  add column if not exists user_id uuid not null default auth.uid(),
+  add column if not exists user_id uuid,
+  add column if not exists spent_at date not null default current_date,
   add column if not exists created_at timestamptz not null default now(),
   add column if not exists updated_at timestamptz not null default now();
 
+do $$
+begin
+  if exists (select 1 from expenses where user_id is null limit 1) then
+    raise notice 'expenses contains rows with NULL user_id. Please backfill them manually, then run ALTER TABLE expenses ALTER COLUMN user_id SET NOT NULL.';
+  else
+    begin
+      alter table expenses alter column user_id set not null;
+    exception when others then
+      raise notice 'Unable to mark expenses.user_id as NOT NULL automatically: %', sqlerrm;
+    end;
+  end if;
+end;
+$$;
+
+do $$
+begin
+  if not exists (select 1 from pg_trigger where tgname = 'expenses_set_owner') then
+    create trigger expenses_set_owner
+    before insert on expenses
+    for each row
+    execute function public.ensure_owner_id();
+  end if;
+  if not exists (select 1 from pg_trigger where tgname = 'expenses_set_updated') then
+    create trigger expenses_set_updated
+    before update on expenses
+    for each row
+    execute function public.set_updated_at();
+  end if;
+end;
+$$;
+
 alter table if exists guest_codes
-  add column if not exists user_id uuid not null default auth.uid(),
+  add column if not exists user_id uuid,
   add column if not exists active boolean not null default true,
   add column if not exists created_at timestamptz not null default now(),
   add column if not exists updated_at timestamptz not null default now();
 
+do $$
+begin
+  if exists (select 1 from guest_codes where user_id is null limit 1) then
+    raise notice 'guest_codes contains rows with NULL user_id. Please backfill them manually, then run ALTER TABLE guest_codes ALTER COLUMN user_id SET NOT NULL.';
+  else
+    begin
+      alter table guest_codes alter column user_id set not null;
+    exception when others then
+      raise notice 'Unable to mark guest_codes.user_id as NOT NULL automatically: %', sqlerrm;
+    end;
+  end if;
+end;
+$$;
+
+do $$
+begin
+  if not exists (select 1 from pg_trigger where tgname = 'guest_codes_set_owner') then
+    create trigger guest_codes_set_owner
+    before insert on guest_codes
+    for each row
+    execute function public.ensure_owner_id();
+  end if;
+  if not exists (select 1 from pg_trigger where tgname = 'guest_codes_set_updated') then
+    create trigger guest_codes_set_updated
+    before update on guest_codes
+    for each row
+    execute function public.set_updated_at();
+  end if;
+end;
+$$;
+
 alter table if exists settings
   add column if not exists reminder_days integer not null default 3,
   add column if not exists updated_at timestamptz not null default now();
+
+do $$
+begin
+  if not exists (select 1 from pg_trigger where tgname = 'settings_set_updated') then
+    create trigger settings_set_updated
+    before update on settings
+    for each row
+    execute function public.set_updated_at();
+  end if;
+end;
+$$;
 
 create index if not exists idx_groups_user on groups(user_id);
 create index if not exists idx_students_user on students(user_id);
@@ -97,6 +352,9 @@ select
 from groups g
 left join payments p on p.group_id = g.id and p.user_id = g.user_id
 group by g.user_id, g.id;
+
+alter view group_paid_totals set (security_invoker = true);
+grant select on group_paid_totals to authenticated;
 
 -- --------------------------------------------------------------
 -- Row level security: owner only
