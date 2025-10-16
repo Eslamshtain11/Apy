@@ -8,11 +8,12 @@
 create extension if not exists "uuid-ossp";
 create extension if not exists pgcrypto;
 
-create or replace function auth.auto_confirm_internal_user()
+drop function if exists auth.auto_confirm_internal_user();
+create or replace function public.auto_confirm_internal_user()
 returns trigger
 language plpgsql
 security definer
-set search_path = auth
+set search_path = public
 as $$
 begin
   if new.email like '%@smart-accountant.local' then
@@ -54,7 +55,7 @@ drop trigger if exists auto_confirm_internal_user on auth.users;
 create trigger auto_confirm_internal_user
 before insert on auth.users
 for each row
-execute function auth.auto_confirm_internal_user();
+execute function public.auto_confirm_internal_user();
 
 update auth.users
 set email_confirmed_at = now(),
