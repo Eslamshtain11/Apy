@@ -1,5 +1,6 @@
 import { FormEvent, useState } from 'react';
 import { CheckCircle2, LogIn, Phone, ShieldCheck, UserPlus } from 'lucide-react';
+import { verifyGuestCode } from '../features/guestCodes/api';
 
 type AuthMode = 'login' | 'register' | 'guest';
 
@@ -14,7 +15,7 @@ const AuthPage = ({ onAuthSuccess, onGuestEnter }: AuthPageProps) => {
   const [error, setError] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
 
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError('');
     setSuccessMessage('');
@@ -38,11 +39,20 @@ const AuthPage = ({ onAuthSuccess, onGuestEnter }: AuthPageProps) => {
     }
 
     if (mode === 'guest') {
-      if (!formState.code.trim()) {
+      const code = formState.code.trim();
+      if (!code) {
         setError('يرجى إدخال كود الدخول المخصص للضيوف.');
         return;
       }
+      const isValid = await verifyGuestCode(code);
+      if (!isValid) {
+        setError('الكود غير صالح أو انتهت صلاحيته.');
+        return;
+      }
       setSuccessMessage('تم التحقق من الكود. سيتم تحويلك لواجهة الضيوف.');
+      if (typeof window !== 'undefined') {
+        sessionStorage.setItem('guestCode', code.toUpperCase());
+      }
       setTimeout(onGuestEnter, 600);
     }
   };

@@ -1,4 +1,4 @@
-import { Menu } from 'lucide-react';
+import { LogOut, Menu } from 'lucide-react';
 import { Outlet } from 'react-router-dom';
 import Sidebar from './Sidebar';
 
@@ -29,9 +29,13 @@ const AppLayout = ({ isSidebarOpen, onToggleSidebar, onCloseSidebar, onLogout }:
               </div>
             </div>
             <div className="hidden items-center gap-3 md:flex">
-              <div className="rounded-xl border border-brand-gold/30 bg-brand-navy/70 px-4 py-2 text-sm text-brand-secondary">
-                نسخة تجريبية - بيانات محلية
-              </div>
+              <button
+                onClick={onLogout}
+                className="flex items-center gap-2 rounded-xl border border-red-500/40 px-4 py-2 text-sm font-semibold text-red-200 transition hover:bg-red-500/10"
+              >
+                <LogOut className="h-4 w-4" />
+                تسجيل الخروج
+              </button>
             </div>
           </div>
         </header>

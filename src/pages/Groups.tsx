@@ -108,12 +108,19 @@ const Groups = () => {
     })();
   };
 
-  const handleMembershipChange = (groupId: string, selected: HTMLCollectionOf<HTMLOptionElement>) => {
-    const selection = Array.from(selected).map((option) => option.value);
-    setMembershipDrafts((current) => ({
-      ...current,
-      [groupId]: selection
-    }));
+  const toggleStudentSelection = (groupId: string, studentId: string) => {
+    setMembershipDrafts((current) => {
+      const currentMembers = new Set(current[groupId] ?? []);
+      if (currentMembers.has(studentId)) {
+        currentMembers.delete(studentId);
+      } else {
+        currentMembers.add(studentId);
+      }
+      return {
+        ...current,
+        [groupId]: Array.from(currentMembers)
+      };
+    });
   };
 
   const handleSaveMembership = async (groupId: string) => {
@@ -210,18 +217,38 @@ const Groups = () => {
                     </div>
                     <div>
                       <label className="mb-2 block text-xs text-brand-secondary">حدد الطلاب المنتسبين</label>
-                      <select
-                        multiple
-                        value={membershipDrafts[group.id] ?? []}
-                        onChange={(event) => handleMembershipChange(group.id, event.target.selectedOptions)}
-                        className="h-32 w-full rounded-xl border border-white/10 bg-brand-navy/60 px-3 py-2 text-right text-xs text-brand-light focus:border-brand-gold focus:outline-none"
-                      >
-                        {studentsList.map((student) => (
-                          <option key={student.id} value={student.id} className="bg-brand-navy text-brand-light">
-                            {student.full_name}
-                          </option>
-                        ))}
-                      </select>
+                      <div className="max-h-48 space-y-2 overflow-y-auto rounded-xl border border-white/10 bg-brand-navy/40 p-2">
+                        {studentsList.length ? (
+                          studentsList.map((student) => {
+                            const checked = (membershipDrafts[group.id] ?? []).includes(student.id);
+                            return (
+                              <button
+                                type="button"
+                                key={student.id}
+                                onClick={() => toggleStudentSelection(group.id, student.id)}
+                                className={`flex w-full items-center justify-between rounded-lg border px-3 py-2 text-xs transition ${
+                                  checked
+                                    ? 'border-brand-gold bg-brand-gold/10 text-brand-light'
+                                    : 'border-white/10 bg-brand-navy/60 text-brand-secondary hover:border-brand-gold/40'
+                                }`}
+                              >
+                                <span>{student.full_name}</span>
+                                <span
+                                  className={`flex h-5 w-5 items-center justify-center rounded-full border ${
+                                    checked
+                                      ? 'border-brand-gold bg-brand-gold text-brand-blue'
+                                      : 'border-white/20 text-brand-secondary'
+                                  }`}
+                                >
+                                  {checked ? '✓' : ''}
+                                </span>
+                              </button>
+                            );
+                          })
+                        ) : (
+                          <div className="py-6 text-center text-xs text-brand-secondary">لا يوجد طلاب حالياً</div>
+                        )}
+                      </div>
                       <div className="mt-3 flex justify-end">
                         <button
                           onClick={() => handleSaveMembership(group.id)}

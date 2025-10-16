@@ -1,15 +1,59 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { LogOut, School, Search } from 'lucide-react';
-import { payments } from '../data/mockData';
 import { filterByMonth, formatCurrency, formatDate } from '../utils/format';
+import { useAppData } from '../contexts/AppDataContext';
+import { verifyGuestCode } from '../features/guestCodes/api';
+import { toast } from 'sonner';
 
 const GuestView = () => {
+  const navigate = useNavigate();
+  const { payments, loading } = useAppData();
   const [selectedMonth, setSelectedMonth] = useState('all');
+  const [verifying, setVerifying] = useState(true);
+
+  useEffect(() => {
+    const verify = async () => {
+      if (typeof window === 'undefined') return;
+      const code = sessionStorage.getItem('guestCode');
+      if (!code) {
+        navigate('/auth', { replace: true });
+        return;
+      }
+      const valid = await verifyGuestCode(code);
+      if (!valid) {
+        toast.error('انتهت صلاحية كود الزائر، يرجى طلب كود جديد.');
+        sessionStorage.removeItem('guestCode');
+        navigate('/auth', { replace: true });
+        return;
+      }
+      setVerifying(false);
+    };
+    void verify();
+  }, [navigate]);
+
   const filteredPayments = useMemo(
     () => filterByMonth(payments, selectedMonth, (payment) => payment.paid_at),
-    [selectedMonth]
+    [payments, selectedMonth]
   );
   const totalAmount = filteredPayments.reduce((sum, payment) => sum + payment.amount, 0);
+
+  const handleLogout = () => {
+    if (typeof window !== 'undefined') {
+      sessionStorage.removeItem('guestCode');
+    }
+    navigate('/auth', { replace: true });
+  };
+
+  if (verifying) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-brand-blue text-brand-light">
+        <div className="rounded-2xl border border-white/10 bg-brand-navy/60 px-8 py-6 text-center text-brand-secondary">
+          جارٍ التحقق من صلاحية كود الزائر...
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-brand-blue text-brand-light">
@@ -24,7 +68,10 @@ const GuestView = () => {
               <h1 className="text-2xl font-black text-brand-gold">المحاسب الشخصي</h1>
             </div>
           </div>
-          <button className="flex items-center justify-center gap-2 rounded-xl border border-red-500/40 px-4 py-3 text-sm font-semibold text-red-300 transition hover:bg-red-500/10">
+          <button
+            onClick={handleLogout}
+            className="flex items-center justify-center gap-2 rounded-xl border border-red-500/40 px-4 py-3 text-sm font-semibold text-red-300 transition hover:bg-red-500/10"
+          >
             <LogOut className="h-4 w-4" />
             خروج
           </button>
@@ -67,31 +114,35 @@ const GuestView = () => {
               <Search className="h-4 w-4" />
               البيانات التالية تعرض أرقامًا إجمالية دون كشف أسماء الطلاب.
             </div>
-            <table className="min-w-full text-right">
-              <thead>
-                <tr className="text-xs uppercase tracking-wider text-brand-secondary">
-                  <th className="px-4 py-3">الطالب</th>
-                  <th className="px-4 py-3">المبلغ</th>
-                  <th className="px-4 py-3">التاريخ</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredPayments.map((payment, index) => (
-                  <tr key={payment.id} className="border-b border-white/5 hover:bg-brand-navy/40">
-                    <td className="px-4 py-4 text-sm text-brand-light">طالب {index + 1}</td>
-                    <td className="px-4 py-4 text-sm text-brand-light">{formatCurrency(payment.amount)}</td>
-                    <td className="px-4 py-4 text-sm text-brand-secondary">{formatDate(payment.paid_at)}</td>
+            {loading ? (
+              <div className="py-12 text-center text-brand-secondary">جارٍ تحميل الدفعات...</div>
+            ) : (
+              <table className="min-w-full text-right">
+                <thead>
+                  <tr className="text-xs uppercase tracking-wider text-brand-secondary">
+                    <th className="px-4 py-3">الطالب</th>
+                    <th className="px-4 py-3">المبلغ</th>
+                    <th className="px-4 py-3">التاريخ</th>
                   </tr>
-                ))}
-              </tbody>
-              <tfoot>
-                <tr className="bg-brand-gold/10 text-sm font-semibold text-brand-light">
-                  <td className="px-4 py-3">الإجمالي</td>
-                  <td className="px-4 py-3">{formatCurrency(totalAmount)}</td>
-                  <td className="px-4 py-3">{filteredPayments.length} دفعات</td>
-                </tr>
-              </tfoot>
-            </table>
+                </thead>
+                <tbody>
+                  {filteredPayments.map((payment, index) => (
+                    <tr key={payment.id} className="border-b border-white/5 hover:bg-brand-navy/40">
+                      <td className="px-4 py-4 text-sm text-brand-light">طالب {index + 1}</td>
+                      <td className="px-4 py-4 text-sm text-brand-light">{formatCurrency(payment.amount)}</td>
+                      <td className="px-4 py-4 text-sm text-brand-secondary">{formatDate(payment.paid_at)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr className="bg-brand-gold/10 text-sm font-semibold text-brand-light">
+                    <td className="px-4 py-3">الإجمالي</td>
+                    <td className="px-4 py-3">{formatCurrency(totalAmount)}</td>
+                    <td className="px-4 py-3">{filteredPayments.length} دفعات</td>
+                  </tr>
+                </tfoot>
+              </table>
+            )}
           </div>
         </div>
       </main>

@@ -1,22 +1,22 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { Edit3, FileSpreadsheet, FileText, Filter, Lightbulb, PlusCircle, Search, Trash2 } from 'lucide-react';
 import PageHeader from '../components/PageHeader';
 import StatCard from '../components/StatCard';
 import Modal from '../components/Modal';
 import EmptyState from '../components/EmptyState';
 import PaymentDialog from '../features/payments/PaymentDialog';
-import { monthOptions, expenses } from '../data/mockData';
 import { egp, filterByMonth, formatDate } from '../utils/format';
 import { useSmartInsights } from '../features/analytics/useSmartInsights';
 import type { Group, Student } from '../types/db';
 import {
   deletePayment,
-  fetchAllGroups,
-  fetchAllPayments,
-  fetchAllStudents,
   type PaymentEntity
 } from '../features/payments/api';
 import { toast } from 'sonner';
+import { useAppData } from '../contexts/AppDataContext';
+
+const monthFormatter = new Intl.DateTimeFormat('ar-EG', { month: 'long' });
 
 const PaymentRow = ({
   payment,
@@ -66,68 +66,58 @@ const PaymentRow = ({
   </tr>
 );
 
+const buildMonthOptions = (payments: PaymentEntity[]) => {
+  const map = new Map<string, string>();
+  payments.forEach((payment) => {
+    const date = new Date(payment.paid_at);
+    const value = `${date.getMonth() + 1}`.padStart(2, '0');
+    if (!map.has(value)) {
+      map.set(value, monthFormatter.format(date));
+    }
+  });
+  return Array.from(map.entries()).map(([value, label]) => ({ value, label }));
+};
+
+const augmentPayment = (payment: PaymentEntity): PaymentEntity => ({
+  ...payment,
+  status: payment.status ?? 'paid'
+});
+
 const Payments = () => {
-  const [paymentList, setPaymentList] = useState<PaymentEntity[]>([]);
-  const [studentsList, setStudentsList] = useState<Student[]>([]);
-  const [groupsList, setGroupsList] = useState<Group[]>([]);
+  const location = useLocation();
+  const navigate = useNavigate();
+  const { payments, students, groups, expenses, loading, setPayments, setStudents, refresh } = useAppData();
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedMonth, setSelectedMonth] = useState('all');
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isInsightsOpen, setIsInsightsOpen] = useState(false);
-  const [loading, setLoading] = useState(true);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [editingPayment, setEditingPayment] = useState<PaymentEntity | null>(null);
   const [editingStudent, setEditingStudent] = useState<Student | null>(null);
   const [editingGroup, setEditingGroup] = useState<Group | null>(null);
 
-  const insights = useSmartInsights(paymentList, expenses);
-
   useEffect(() => {
-    let active = true;
-    setLoading(true);
-    (async () => {
-      try {
-        const [students, groups, payments] = await Promise.all([
-          fetchAllStudents(),
-          fetchAllGroups(),
-          fetchAllPayments()
-        ]);
+    if (location.state && (location.state as { openDialog?: boolean }).openDialog) {
+      setIsDialogOpen(true);
+      navigate(location.pathname, { replace: true });
+    }
+  }, [location, navigate]);
 
-        if (!active) return;
-
-        setStudentsList(students);
-        setGroupsList(groups);
-        setPaymentList(payments.map((payment) => ({ ...payment, status: payment.status ?? 'paid' })));
-      } catch (error) {
-        console.error(error);
-        if (active) {
-          toast.error('تعذر تحميل الدفعات من الخادم');
-        }
-      } finally {
-        if (active) {
-          setLoading(false);
-        }
-      }
-    })();
-
-    return () => {
-      active = false;
-    };
-  }, []);
+  const monthOptions = useMemo(() => buildMonthOptions(payments), [payments]);
 
   const filteredPayments = useMemo(() => {
-    const monthFiltered = filterByMonth(paymentList, selectedMonth, (item) => item.paid_at);
+    const monthFiltered = filterByMonth(payments, selectedMonth, (item) => item.paid_at);
     if (!searchTerm.trim()) return monthFiltered;
     const normalized = searchTerm.trim().toLowerCase();
     return monthFiltered.filter((payment) => {
       const student = payment.student_id
-        ? studentsList.find((item) => item.id === payment.student_id)
+        ? students.find((item) => item.id === payment.student_id)
         : undefined;
-      const group = payment.group_id ? groupsList.find((item) => item.id === payment.group_id) : undefined;
+      const group = payment.group_id ? groups.find((item) => item.id === payment.group_id) : undefined;
       const haystack = `${student?.full_name ?? ''} ${group?.name ?? ''}`.toLowerCase();
       return haystack.includes(normalized);
     });
-  }, [paymentList, selectedMonth, searchTerm, studentsList, groupsList]);
+  }, [payments, selectedMonth, searchTerm, students, groups]);
 
   const totalAmount = filteredPayments.reduce((sum, payment) => sum + payment.amount, 0);
   const uniqueStudents = useMemo(() => {
@@ -136,6 +126,8 @@ const Payments = () => {
       .filter((id): id is string => Boolean(id));
     return new Set(ids).size;
   }, [filteredPayments]);
+
+  const insights = useSmartInsights(filteredPayments, expenses);
 
   const handleDialogClose = () => {
     setIsDialogOpen(false);
@@ -150,8 +142,9 @@ const Payments = () => {
     setDeletingId(payment.id);
     try {
       await deletePayment(payment.id);
-      setPaymentList((current) => current.filter((item: PaymentEntity) => item.id !== payment.id));
+      setPayments((current) => current.filter((item) => item.id !== payment.id));
       toast.success('تم حذف الدفعة بنجاح');
+      void refresh();
     } catch (error) {
       console.error(error);
       toast.error('تعذر حذف الدفعة، حاول مرة أخرى');
@@ -161,8 +154,8 @@ const Payments = () => {
   };
 
   const handleEdit = (payment: PaymentEntity) => {
-    const student = payment.student_id ? studentsList.find((item: Student) => item.id === payment.student_id) ?? null : null;
-    const group = payment.group_id ? groupsList.find((item: Group) => item.id === payment.group_id) ?? null : null;
+    const student = payment.student_id ? students.find((item: Student) => item.id === payment.student_id) ?? null : null;
+    const group = payment.group_id ? groups.find((item: Group) => item.id === payment.group_id) ?? null : null;
     setEditingPayment(payment);
     setEditingStudent(student);
     setEditingGroup(group);
@@ -174,6 +167,77 @@ const Payments = () => {
     setEditingStudent(null);
     setEditingGroup(null);
     setIsDialogOpen(true);
+  };
+
+  const exportToExcel = () => {
+    const header = ['الطالب', 'المجموعة', 'المبلغ', 'التاريخ', 'طريقة الدفع', 'ملاحظات'];
+    const rows = filteredPayments.map((payment) => {
+      const student = payment.student_id ? students.find((item) => item.id === payment.student_id) : null;
+      const group = payment.group_id ? groups.find((item) => item.id === payment.group_id) : null;
+      return [
+        student?.full_name ?? '—',
+        group?.name ?? '—',
+        egp(payment.amount),
+        formatDate(payment.paid_at),
+        payment.method === 'cash' ? 'نقدي' : payment.method === 'card' ? 'بطاقة' : 'تحويل',
+        payment.note ?? ''
+      ];
+    });
+    const csvContent = [header, ...rows]
+      .map((row) => row.map((value) => `"${String(value).replace(/"/g, '""')}"`).join(','))
+      .join('\n');
+    const blob = new Blob(['\uFEFF' + csvContent], { type: 'application/vnd.ms-excel' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'payments-report.xls';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    toast.success('تم تصدير كشف الحساب إلى ملف Excel');
+  };
+
+  const exportToPdf = () => {
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+      toast.error('تعذر فتح نافذة الطباعة، تحقق من إعدادات المتصفح');
+      return;
+    }
+    const rows = filteredPayments
+      .map((payment, index) => {
+        const student = payment.student_id ? students.find((item) => item.id === payment.student_id) : null;
+        const group = payment.group_id ? groups.find((item) => item.id === payment.group_id) : null;
+        return `<tr>
+          <td>${index + 1}</td>
+          <td>${student?.full_name ?? '—'}</td>
+          <td>${group?.name ?? '—'}</td>
+          <td>${egp(payment.amount)}</td>
+          <td>${formatDate(payment.paid_at)}</td>
+          <td>${payment.method === 'cash' ? 'نقدي' : payment.method === 'card' ? 'بطاقة' : 'تحويل'}</td>
+          <td>${payment.note ?? ''}</td>
+        </tr>`;
+      })
+      .join('');
+    printWindow.document.write(`<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8" />
+      <title>تقرير الدفعات</title>
+      <style>
+        body { font-family: 'Cairo', sans-serif; padding: 24px; background: #0A192F; color: #CCD6F6; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { border: 1px solid rgba(255,255,255,0.2); padding: 8px; text-align: right; }
+        th { background: #172A46; }
+      </style>
+    </head><body>
+      <h1>كشف الدفعات</h1>
+      <p>إجمالي المبالغ: ${egp(totalAmount)}</p>
+      <table><thead><tr>
+        <th>#</th><th>الطالب</th><th>المجموعة</th><th>المبلغ</th><th>التاريخ</th><th>الطريقة</th><th>ملاحظات</th>
+      </tr></thead><tbody>${rows}</tbody></table>
+    </body></html>`);
+    printWindow.document.close();
+    printWindow.focus();
+    printWindow.print();
+    toast.success('يمكنك حفظ التقرير كملف PDF من نافذة الطباعة');
   };
 
   return (
@@ -197,11 +261,17 @@ const Payments = () => {
               <Lightbulb className="h-4 w-4" />
               تحليل ذكي
             </button>
-            <button className="flex items-center gap-2 rounded-xl border border-green-700/50 px-4 py-3 font-semibold text-green-400 transition hover:bg-green-700/10">
+            <button
+              onClick={exportToExcel}
+              className="flex items-center gap-2 rounded-xl border border-green-700/50 px-4 py-3 font-semibold text-green-400 transition hover:bg-green-700/10"
+            >
               <FileSpreadsheet className="h-4 w-4" />
               تصدير XLSX
             </button>
-            <button className="flex items-center gap-2 rounded-xl border border-red-500/50 px-4 py-3 font-semibold text-red-300 transition hover:bg-red-500/10">
+            <button
+              onClick={exportToPdf}
+              className="flex items-center gap-2 rounded-xl border border-red-500/50 px-4 py-3 font-semibold text-red-300 transition hover:bg-red-500/10"
+            >
               <FileText className="h-4 w-4" />
               تصدير PDF
             </button>
@@ -279,8 +349,8 @@ const Payments = () => {
                   <PaymentRow
                     key={payment.id}
                     payment={payment}
-                    student={payment.student_id ? studentsList.find((student) => student.id === payment.student_id) : undefined}
-                    group={payment.group_id ? groupsList.find((group) => group.id === payment.group_id) : undefined}
+                    student={payment.student_id ? students.find((student) => student.id === payment.student_id) : undefined}
+                    group={payment.group_id ? groups.find((group) => group.id === payment.group_id) : undefined}
                     onEdit={handleEdit}
                     onDelete={handleDelete}
                     deleting={deletingId === payment.id}
@@ -322,14 +392,14 @@ const Payments = () => {
               key={insight.title}
               className={`rounded-xl border px-4 py-3 text-sm ${
                 insight.tone === 'success'
-                  ? 'border-green-500/40 bg-green-900/20 text-green-200'
+                  ? 'border-green-700/40 bg-green-900/20 text-green-200'
                   : insight.tone === 'warning'
-                  ? 'border-red-500/40 bg-red-900/20 text-red-200'
-                  : 'border-white/10 bg-brand-blue/40 text-brand-secondary'
+                  ? 'border-red-500/40 bg-red-900/30 text-red-200'
+                  : 'border-brand-gold/30 bg-brand-gold/10 text-brand-light'
               }`}
             >
-              <h4 className="font-semibold text-brand-light">{insight.title}</h4>
-              <p className="mt-1 leading-6">{insight.description}</p>
+              <p className="text-base font-semibold">{insight.title}</p>
+              <p className="mt-2 text-brand-light/80">{insight.description}</p>
             </div>
           ))}
         </div>
@@ -338,50 +408,30 @@ const Payments = () => {
       <PaymentDialog
         isOpen={isDialogOpen}
         mode={editingPayment ? 'edit' : 'create'}
-        initialPayment={editingPayment ?? undefined}
-        initialStudent={editingStudent ?? undefined}
-        initialGroup={editingGroup ?? undefined}
+        initialPayment={editingPayment}
+        initialStudent={editingStudent}
+        initialGroup={editingGroup}
         onClose={handleDialogClose}
-        onSuccess={({ payment, student, group, balance, action }) => {
-          setPaymentList((current: PaymentEntity[]) => {
+        onSuccess={({ payment, student, action }) => {
+          setPayments((current) => {
+            const normalized = augmentPayment(payment);
             if (action === 'update') {
-              return current.map((item: PaymentEntity) => (item.id === payment.id ? { ...item, ...payment } : item));
+              return current.map((item) => (item.id === payment.id ? normalized : item));
             }
-            return [...current, { ...payment, status: 'paid' as const }];
+            const withoutCurrent = current.filter((item) => item.id !== payment.id);
+            return [normalized, ...withoutCurrent];
           });
 
           if (student) {
-            setStudentsList((current: Student[]) => {
-              const exists = current.some((item: Student) => item.id === student.id);
-              return exists ? current.map((item: Student) => (item.id === student.id ? student : item)) : [...current, student];
+            setStudents((current) => {
+              const exists = current.some((item) => item.id === student.id);
+              return exists
+                ? current.map((item) => (item.id === student.id ? student : item))
+                : [...current, student];
             });
           }
 
-          if (group) {
-            setGroupsList((current: Group[]) => {
-              const exists = current.some((item: Group) => item.id === group.id);
-              return exists ? current.map((item: Group) => (item.id === group.id ? group : item)) : [...current, group];
-            });
-          }
-
-          if (balance && group) {
-            setGroupsList((current: Group[]) =>
-              current.map((item: Group) =>
-                item.id === group.id
-                  ? {
-                      ...item,
-                      due_total: group.due_total
-                    }
-                  : item
-              )
-            );
-          }
-
-          if (action === 'update') {
-            setEditingPayment(null);
-            setEditingStudent(null);
-            setEditingGroup(null);
-          }
+          void refresh();
         }}
       />
     </div>

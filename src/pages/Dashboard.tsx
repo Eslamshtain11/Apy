@@ -1,20 +1,63 @@
-import { useMemo, useState } from 'react';
-import { ArrowDownToLine, ArrowUpRight, BellRing, CalendarRange, Users } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { ArrowDownToLine, ArrowUpRight, BellRing, CalendarRange, Download, Users } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import StatCard from '../components/StatCard';
 import PageHeader from '../components/PageHeader';
-import { payments, expenses, students } from '../data/mockData';
-import { filterByMonth, formatCurrency } from '../utils/format';
 import EmptyState from '../components/EmptyState';
+import { filterByMonth, formatCurrency, egp } from '../utils/format';
+import { useAppData } from '../contexts/AppDataContext';
+import { getGroupBalance, type GroupBalance } from '../features/payments/api';
 
 const monthNames = new Intl.DateTimeFormat('ar-EG', { month: 'long' });
 
 const Dashboard = () => {
+  const navigate = useNavigate();
+  const { payments, expenses, students, groups, loading } = useAppData();
   const [selectedMonth, setSelectedMonth] = useState('all');
   const [reminderDays, setReminderDays] = useState(3);
+  const [balances, setBalances] = useState<Record<string, GroupBalance>>({});
 
-  const { netIncome, totalIncome, totalExpenses, payingStudents, latePayments, upcomingPayments } = useMemo(() => {
+  useEffect(() => {
+    let active = true;
+    if (!groups.length) {
+      setBalances({});
+      return;
+    }
+
+    (async () => {
+      try {
+        const entries = await Promise.all(
+          groups.map(async (group) => {
+            const balance = await getGroupBalance(group.id);
+            return [group.id, balance] as const;
+          })
+        );
+        if (active) {
+          setBalances(Object.fromEntries(entries));
+        }
+      } catch (error) {
+        console.error(error);
+        if (active) {
+          setBalances({});
+        }
+      }
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [groups]);
+
+  const {
+    netIncome,
+    totalIncome,
+    totalExpenses,
+    payingStudents,
+    groupsWithDebt,
+    latestPayments
+  } = useMemo(() => {
     const filteredPayments = filterByMonth(payments, selectedMonth, (payment) => payment.paid_at);
-    const filteredExpenses = filterByMonth(expenses, selectedMonth);
+    const filteredExpenses = filterByMonth(expenses, selectedMonth, (expense) => expense.spent_at);
 
     const totalIncomeValue = filteredPayments.reduce((sum, payment) => sum + payment.amount, 0);
     const totalExpensesValue = filteredExpenses.reduce((sum, expense) => sum + expense.amount, 0);
@@ -22,19 +65,29 @@ const Dashboard = () => {
 
     const payingStudentsSet = new Set(
       filteredPayments
-        .filter((payment) => payment.status === 'paid' && payment.student_id)
-        .map((p) => p.student_id as string)
+        .map((payment) => payment.student_id)
+        .filter((id): id is string => Boolean(id))
     );
+
+    const groupsWithDebtValue = groups
+      .map((group) => ({ group, balance: balances[group.id] }))
+      .filter(({ balance }) => (balance?.remaining ?? 0) > 0)
+      .sort((a, b) => (b.balance?.remaining ?? 0) - (a.balance?.remaining ?? 0))
+      .slice(0, 5);
+
+    const latestPaymentsValue = [...filteredPayments]
+      .sort((a, b) => new Date(b.paid_at).getTime() - new Date(a.paid_at).getTime())
+      .slice(0, 5);
 
     return {
       totalIncome: totalIncomeValue,
       totalExpenses: totalExpensesValue,
       netIncome: netIncomeValue,
       payingStudents: payingStudentsSet.size,
-      latePayments: filteredPayments.filter((payment) => payment.status === 'late'),
-      upcomingPayments: filteredPayments.filter((payment) => payment.status === 'pending')
+      groupsWithDebt: groupsWithDebtValue,
+      latestPayments: latestPaymentsValue
     };
-  }, [selectedMonth]);
+  }, [payments, expenses, groups, balances, selectedMonth]);
 
   const months = useMemo(() => {
     const allMonths = new Set(
@@ -43,7 +96,28 @@ const Dashboard = () => {
         .map((date) => `${date.getMonth() + 1}`.padStart(2, '0'))
     );
     return ['all', ...Array.from(allMonths)];
-  }, []);
+  }, [payments]);
+
+  const handleExportDashboard = () => {
+    const summary = `ملخص لوحة التحكم\n\nإجمالي الدخل: ${egp(totalIncome)}\nإجمالي المصروفات: ${egp(totalExpenses)}\nصافي الدخل: ${egp(netIncome)}\nعدد الطلاب الدافعين: ${payingStudents}`;
+    const blob = new Blob(['\uFEFF' + summary], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'dashboard-summary.txt';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleOpenPaymentDialog = () => {
+    navigate('/payments', { state: { openDialog: true } });
+  };
+
+  const handleGoToPayments = () => {
+    navigate('/payments');
+  };
 
   return (
     <div className="space-y-8">
@@ -66,12 +140,22 @@ const Dashboard = () => {
                 </option>
               ))}
             </select>
-            <button className="rounded-xl border border-brand-gold/50 px-4 py-3 text-sm font-semibold text-brand-gold transition hover:bg-brand-gold/10">
+            <button
+              onClick={handleExportDashboard}
+              className="flex items-center gap-2 rounded-xl border border-brand-gold/50 px-4 py-3 text-sm font-semibold text-brand-gold transition hover:bg-brand-gold/10"
+            >
+              <Download className="h-4 w-4" />
               تصدير لوحة التحكم
             </button>
           </div>
         }
       />
+
+      {loading ? (
+        <div className="rounded-2xl border border-white/5 bg-brand-navy/40 p-6 text-center text-brand-secondary">
+          جاري تحميل البيانات الفعلية من Supabase...
+        </div>
+      ) : null}
 
       <section className="grid gap-6 md:grid-cols-2 xl:grid-cols-4">
         <StatCard
@@ -108,7 +192,10 @@ const Dashboard = () => {
           value=""
           tone="highlight"
           action={
-            <button className="w-full rounded-xl bg-brand-gold px-4 py-3 text-sm font-bold text-brand-blue transition hover:bg-brand-gold/90">
+            <button
+              onClick={handleOpenPaymentDialog}
+              className="w-full rounded-xl bg-brand-gold px-4 py-3 text-sm font-bold text-brand-blue transition hover:bg-brand-gold/90"
+            >
               إضافة دفعة جديدة
             </button>
           }
@@ -118,7 +205,10 @@ const Dashboard = () => {
           title="عرض كشف الحساب"
           value=""
           action={
-            <button className="w-full rounded-xl border border-brand-gold px-4 py-3 text-sm font-bold text-brand-gold transition hover:bg-brand-gold/10">
+            <button
+              onClick={handleGoToPayments}
+              className="w-full rounded-xl border border-brand-gold px-4 py-3 text-sm font-bold text-brand-gold transition hover:bg-brand-gold/10"
+            >
               الانتقال إلى كشف الحساب
             </button>
           }
@@ -156,46 +246,45 @@ const Dashboard = () => {
         </div>
         <div className="space-y-6">
           <div className="rounded-2xl border border-red-500/30 bg-red-900/20 p-6 shadow-soft">
-            <h3 className="text-lg font-bold text-red-200">طلاب متأخرون</h3>
-            <p className="mt-2 text-sm text-red-200/80">طلاب تجاوزوا موعد الدفع المحدد.</p>
+            <h3 className="text-lg font-bold text-red-200">مجموعات عليها مستحقات</h3>
+            <p className="mt-2 text-sm text-red-200/80">أقسام لم تسدد كامل المبلغ المستهدف حتى الآن.</p>
             <div className="mt-4 space-y-3 text-sm">
-              {latePayments.length ? (
-                latePayments.map((payment) => {
-                  const student = students.find((item) => item.id === payment.student_id);
-                  return (
-                    <div
-                      key={payment.id}
-                      className="flex items-center justify-between rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3"
-                    >
-                      <span>{student?.full_name ?? 'طالب غير معروف'}</span>
-                      <span>{formatCurrency(payment.amount)}</span>
-                    </div>
-                  );
-                })
+              {groupsWithDebt.length ? (
+                groupsWithDebt.map(({ group, balance }) => (
+                  <div
+                    key={group.id}
+                    className="flex items-center justify-between rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3"
+                  >
+                    <span>{group.name}</span>
+                    <span>{balance ? egp(balance.remaining) : egp(0)}</span>
+                  </div>
+                ))
               ) : (
-                <EmptyState title="لا يوجد تأخير" description="كل الطلاب ملتزمون بالمواعيد المحددة." />
+                <EmptyState title="لا توجد مستحقات" description="تم سداد جميع المبالغ للمجموعات الحالية." />
               )}
             </div>
           </div>
           <div className="rounded-2xl border border-brand-gold/40 bg-brand-gold/10 p-6 shadow-soft">
-            <h3 className="text-lg font-bold text-brand-light">دفعات قادمة</h3>
-            <p className="mt-2 text-sm text-brand-secondary">طلاب اقترب موعد سدادهم.</p>
+            <h3 className="text-lg font-bold text-brand-light">دفعات مسجلة حديثًا</h3>
+            <p className="mt-2 text-sm text-brand-secondary">أحدث الدفعات التي تمت إضافتها للنظام.</p>
             <div className="mt-4 space-y-3 text-sm">
-              {upcomingPayments.length ? (
-                upcomingPayments.map((payment) => {
-                  const student = students.find((item) => item.id === payment.student_id);
+              {latestPayments.length ? (
+                latestPayments.map((payment) => {
+                  const student = payment.student_id
+                    ? students.find((item) => item.id === payment.student_id)
+                    : null;
                   return (
                     <div
                       key={payment.id}
                       className="flex items-center justify-between rounded-xl border border-brand-gold/30 bg-brand-blue/60 px-4 py-3"
                     >
-                      <span>{student?.full_name ?? 'طالب غير معروف'}</span>
+                      <span>{student?.full_name ?? 'دفعة على مستوى المجموعة'}</span>
                       <span>{formatCurrency(payment.amount)}</span>
                     </div>
                   );
                 })
               ) : (
-                <EmptyState title="لا توجد دفعات قريبة" description="كل الدفعات الحالية تم سدادها." />
+                <EmptyState title="لا توجد دفعات" description="سجل دفعة جديدة لعرض آخر العمليات هنا." />
               )}
             </div>
           </div>

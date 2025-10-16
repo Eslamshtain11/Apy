@@ -58,9 +58,7 @@ const GuestCodes = () => {
         return;
       }
 
-      if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(code);
-      } else {
+      const fallbackCopy = () => {
         const textarea = document.createElement('textarea');
         textarea.value = code;
         textarea.style.position = 'fixed';
@@ -70,6 +68,17 @@ const GuestCodes = () => {
         textarea.select();
         document.execCommand('copy');
         document.body.removeChild(textarea);
+      };
+
+      if (navigator.clipboard?.writeText) {
+        try {
+          await navigator.clipboard.writeText(code);
+        } catch (error) {
+          console.warn('clipboard write failed, using fallback', error);
+          fallbackCopy();
+        }
+      } else {
+        fallbackCopy();
       }
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);

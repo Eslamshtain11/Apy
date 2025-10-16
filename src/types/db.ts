@@ -24,3 +24,11 @@ export interface Payment {
   paid_at: string;
   note?: string | null;
 }
+
+export interface Expense {
+  id: string;
+  description: string;
+  amount: number;
+  spent_at: string;
+  created_at: string;
+}

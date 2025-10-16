@@ -3,25 +3,27 @@ import { Search } from 'lucide-react';
 import PageHeader from '../components/PageHeader';
 import EmptyState from '../components/EmptyState';
 import StatCard from '../components/StatCard';
-import { payments, students, groups } from '../data/mockData';
 import { formatCurrency, formatDate } from '../utils/format';
+import { useAppData } from '../contexts/AppDataContext';
 
 const StudentSearch = () => {
+  const { students, payments, groups, loading } = useAppData();
   const [query, setQuery] = useState('');
 
   const matchedStudent = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
     if (!normalizedQuery) return students[0];
     return students.find((student) => student.full_name.toLowerCase().includes(normalizedQuery));
-  }, [query]);
+  }, [query, students]);
 
   const studentPayments = useMemo(() => {
     if (!matchedStudent) return [];
     return payments.filter((payment) => payment.student_id === matchedStudent.id);
-  }, [matchedStudent]);
+  }, [matchedStudent, payments]);
 
   const totalAmount = studentPayments.reduce((sum, payment) => sum + payment.amount, 0);
-  const group = groups.find((item) => item.id === (matchedStudent?.group_id ?? ''));
+  const groupId = matchedStudent?.group_id ?? null;
+  const group = groupId ? groups.find((item) => item.id === groupId) : undefined;
 
   return (
     <div className="space-y-8">
@@ -42,7 +44,11 @@ const StudentSearch = () => {
         </div>
       </div>
 
-      {matchedStudent ? (
+      {loading ? (
+        <div className="rounded-2xl border border-white/5 bg-brand-navy/40 p-6 text-center text-brand-secondary">
+          جاري تحميل بيانات الطلاب من Supabase...
+        </div>
+      ) : matchedStudent ? (
         <div className="space-y-6">
           <section className="grid gap-6 md:grid-cols-3">
             <StatCard
@@ -77,21 +83,7 @@ const StudentSearch = () => {
                       <td className="px-4 py-4 text-sm text-brand-secondary">{formatDate(payment.paid_at)}</td>
                       <td className="px-4 py-4 text-sm text-brand-light">{formatCurrency(payment.amount)}</td>
                       <td className="px-4 py-4 text-sm text-brand-light">
-                        <span
-                          className={`rounded-full px-3 py-1 text-xs font-semibold ${
-                            payment.status === 'paid'
-                              ? 'bg-green-900/50 text-green-300'
-                              : payment.status === 'pending'
-                              ? 'bg-brand-gold/10 text-brand-gold'
-                              : 'bg-red-900/40 text-red-200'
-                          }`}
-                        >
-                          {payment.status === 'paid'
-                            ? 'مدفوع'
-                            : payment.status === 'pending'
-                            ? 'قادم'
-                            : 'متأخر'}
-                        </span>
+                        <span className="rounded-full bg-green-900/40 px-3 py-1 text-xs font-semibold text-green-200">مدفوع</span>
                       </td>
                     </tr>
                   ))

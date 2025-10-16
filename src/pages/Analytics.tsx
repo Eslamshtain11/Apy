@@ -4,12 +4,14 @@ import { Calendar, TrendingDown, TrendingUp, Users } from 'lucide-react';
 import PageHeader from '../components/PageHeader';
 import StatCard from '../components/StatCard';
 import EmptyState from '../components/EmptyState';
-import { payments, groups, students } from '../data/mockData';
+import { useAppData } from '../contexts/AppDataContext';
 import { egp } from '../utils/format';
 
 const chartColors = ['#D4AF37', '#60A5FA', '#818CF8', '#34D399', '#F87171'];
 
 const Analytics = () => {
+  const { payments, groups, students, loading } = useAppData();
+
   const monthlyData = useMemo(() => {
     const map = new Map<string, number>();
     payments.forEach((payment) => {
@@ -17,25 +19,32 @@ const Analytics = () => {
       const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
       map.set(key, (map.get(key) ?? 0) + payment.amount);
     });
-    return Array.from(map.entries()).map(([key, total]) => {
-      const [year, month] = key.split('-');
-      const label = new Intl.DateTimeFormat('ar-EG', { month: 'long', year: 'numeric' }).format(
-        new Date(Number(year), Number(month) - 1, 1)
-      );
-      return { key, label, total };
-    });
-  }, []);
+    return Array.from(map.entries())
+      .map(([key, total]) => {
+        const [year, month] = key.split('-');
+        const label = new Intl.DateTimeFormat('ar-EG', { month: 'long', year: 'numeric' }).format(
+          new Date(Number(year), Number(month) - 1, 1)
+        );
+        return { key, label, total };
+      })
+      .sort((a, b) => (a.key > b.key ? 1 : -1));
+  }, [payments]);
 
   const groupedTotals = useMemo(() => {
     const map = new Map<string, number>();
     payments.forEach((payment) => {
-      const student = students.find((item) => item.id === payment.student_id);
-      const group = groups.find((item) => item?.id === student?.group_id);
+      let groupId = payment.group_id ?? null;
+      if (!groupId && payment.student_id) {
+        const student = students.find((item) => item.id === payment.student_id);
+        groupId = student?.group_id ?? null;
+      }
+      if (!groupId) return;
+      const group = groups.find((item) => item.id === groupId);
       if (!group) return;
       map.set(group.name, (map.get(group.name) ?? 0) + payment.amount);
     });
     return Array.from(map.entries()).map(([name, value]) => ({ name, value }));
-  }, []);
+  }, [payments, students, groups]);
 
   const highestMonth = monthlyData.length
     ? monthlyData.reduce((prev, current) => (current.total > prev.total ? current : prev))
@@ -50,6 +59,12 @@ const Analytics = () => {
         title="الإحصاءات المتقدمة"
         description="تحليلات شاملة للدخل حسب الشهور والمجموعات الدراسية"
       />
+
+      {loading ? (
+        <div className="rounded-2xl border border-white/5 bg-brand-navy/50 p-6 text-center text-brand-secondary">
+          جاري تحميل البيانات من Supabase...
+        </div>
+      ) : null}
 
       <section className="grid gap-6 md:grid-cols-2 xl:grid-cols-4">
         <StatCard
@@ -87,7 +102,7 @@ const Analytics = () => {
                 <BarChart data={monthlyData} layout="horizontal">
                   <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
                   <XAxis dataKey="label" stroke="#8892B0" tickLine={false} angle={-10} height={60} interval={0} />
-                  <YAxis stroke="#8892B0" tickFormatter={(value) => `${Math.round(value / 1000)}k`} />
+                  <YAxis stroke="#8892B0" tickFormatter={(value) => `${Math.round(Number(value) / 1000)}k`} />
                   <Tooltip
                     contentStyle={{
                       backgroundColor: '#172A46',

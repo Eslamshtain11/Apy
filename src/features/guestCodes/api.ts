@@ -95,3 +95,31 @@ export const deactivateGuestCodes = async (): Promise<void> => {
     }
   }
 };
+
+export const verifyGuestCode = async (code: string): Promise<boolean> => {
+  const normalized = code.trim().toUpperCase();
+  if (!normalized) return false;
+
+  if (hasSupabase && supabase) {
+    try {
+      const { data, error } = await supabase
+        .from('guest_codes')
+        .select('code, active')
+        .eq('code', normalized)
+        .eq('active', true)
+        .maybeSingle();
+
+      if (error && error.code !== 'PGRST116') {
+        console.error('failed to verify guest code', error);
+      }
+
+      if (data?.active) {
+        return true;
+      }
+    } catch (error) {
+      console.error('failed to verify guest code', error);
+    }
+  }
+
+  return normalized === defaultRecord.code.toUpperCase();
+};

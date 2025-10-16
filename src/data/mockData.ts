@@ -1,11 +1,4 @@
-import type { Group, Payment, Student } from '../types/db';
-
-export type Expense = {
-  id: string;
-  description: string;
-  amount: number;
-  date: string;
-};
+import type { Expense, Group, Payment, Student } from '../types/db';
 
 export type PaymentRecord = Payment & {
   status: 'paid' | 'pending' | 'late';
@@ -150,10 +143,34 @@ export const payments: PaymentRecord[] = [
 ];
 
 export const expenses: Expense[] = [
-  { id: 'exp-1', description: 'إيجار القاعة', amount: 2000, date: isoDate(1, 2) },
-  { id: 'exp-2', description: 'تجهيزات مطبوعة', amount: 450, date: isoDate(1, 18) },
-  { id: 'exp-3', description: 'أجهزة عرض', amount: 1200, date: isoDate(2, 5) },
-  { id: 'exp-4', description: 'اشتراك منصات تعليمية', amount: 600, date: isoDate(3, 1) }
+  {
+    id: 'exp-1',
+    description: 'إيجار القاعة',
+    amount: 2000,
+    spent_at: isoDate(1, 2),
+    created_at: isoDate(1, 2)
+  },
+  {
+    id: 'exp-2',
+    description: 'تجهيزات مطبوعة',
+    amount: 450,
+    spent_at: isoDate(1, 18),
+    created_at: isoDate(1, 18)
+  },
+  {
+    id: 'exp-3',
+    description: 'أجهزة عرض',
+    amount: 1200,
+    spent_at: isoDate(2, 5),
+    created_at: isoDate(2, 5)
+  },
+  {
+    id: 'exp-4',
+    description: 'اشتراك منصات تعليمية',
+    amount: 600,
+    spent_at: isoDate(3, 1),
+    created_at: isoDate(3, 1)
+  }
 ];
 
 export const guestCode = {
