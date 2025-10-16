@@ -1,9 +1,9 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Copy, KeySquare, RefreshCw } from 'lucide-react';
 import PageHeader from '../components/PageHeader';
 import StatCard from '../components/StatCard';
-import { guestCode } from '../data/mockData';
 import { toast } from 'sonner';
+import { fetchActiveGuestCode, generateGuestCode, type GuestCodeRecord } from '../features/guestCodes/api';
 
 const generateCode = () => {
   const charset = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -16,13 +16,48 @@ const generateCode = () => {
 };
 
 const GuestCodes = () => {
-  const [code, setCode] = useState(guestCode.code);
+  const [record, setRecord] = useState<GuestCodeRecord | null>(null);
   const [copied, setCopied] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [generating, setGenerating] = useState(false);
 
-  const lastUpdate = useMemo(() => new Date(guestCode.updatedAt), []);
+  useEffect(() => {
+    let mounted = true;
+    setLoading(true);
+    fetchActiveGuestCode()
+      .then((data) => {
+        if (mounted) {
+          setRecord(data);
+        }
+      })
+      .catch(() => {
+        toast.error('تعذر تحميل كود الضيف الحالي');
+      })
+      .finally(() => {
+        if (mounted) {
+          setLoading(false);
+        }
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const code = record?.code ?? '------';
+
+  const lastUpdate = useMemo(() => {
+    if (!record) return null;
+    return new Date(record.updated_at ?? record.created_at);
+  }, [record]);
 
   const handleCopy = async () => {
     try {
+      if (!code || code === '------') {
+        toast.error('لا يوجد كود متاح للنسخ حالياً');
+        return;
+      }
+
       if (navigator.clipboard?.writeText) {
         await navigator.clipboard.writeText(code);
       } else {
@@ -47,9 +82,17 @@ const GuestCodes = () => {
 
   const handleGenerate = () => {
     const newCode = generateCode();
-    setCode(newCode);
+    setGenerating(true);
     setCopied(false);
-    toast.success('تم إنشاء كود جديد');
+    generateGuestCode(newCode)
+      .then((data) => {
+        setRecord(data);
+        toast.success('تم إنشاء كود جديد وحفظه في القاعدة');
+      })
+      .catch(() => {
+        toast.error('تعذر إنشاء كود جديد، حاول مرة أخرى');
+      })
+      .finally(() => setGenerating(false));
   };
 
   return (
@@ -62,7 +105,13 @@ const GuestCodes = () => {
       <section className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
         <StatCard
           title="آخر تحديث"
-          value={lastUpdate.toLocaleString('ar-EG')}
+          value={
+            loading
+              ? 'جارٍ التحميل...'
+              : lastUpdate
+              ? lastUpdate.toLocaleString('ar-EG')
+              : 'غير متوفر'
+          }
           icon={<RefreshCw className="h-10 w-10" />}
         />
         <StatCard
@@ -80,24 +129,28 @@ const GuestCodes = () => {
 
       <div className="rounded-2xl border border-dashed border-brand-gold/40 bg-brand-navy/40 p-10 text-center shadow-soft">
         <h2 className="text-2xl font-black text-brand-gold">كود الدخول الحالي</h2>
-        <p className="mt-4 text-5xl font-black tracking-widest text-brand-light">{code}</p>
+        <p className="mt-4 text-5xl font-black tracking-widest text-brand-light">
+          {loading ? '••••••' : code}
+        </p>
         <p className="mt-4 text-sm text-brand-secondary">
           شارك هذا الكود مع الضيوف لمنحهم صلاحية عرض البيانات دون تعديل.
         </p>
         <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
           <button
             onClick={handleCopy}
-            className="flex items-center gap-2 rounded-xl border border-brand-gold px-6 py-3 text-sm font-semibold text-brand-gold transition hover:bg-brand-gold/10"
+            disabled={loading || !record}
+            className="flex items-center gap-2 rounded-xl border border-brand-gold px-6 py-3 text-sm font-semibold text-brand-gold transition hover:bg-brand-gold/10 disabled:cursor-not-allowed disabled:opacity-60"
           >
             <Copy className="h-4 w-4" />
             نسخ الكود
           </button>
           <button
             onClick={handleGenerate}
-            className="flex items-center gap-2 rounded-xl bg-brand-gold px-6 py-3 text-sm font-semibold text-brand-blue transition hover:bg-brand-gold/90"
+            disabled={generating}
+            className="flex items-center gap-2 rounded-xl bg-brand-gold px-6 py-3 text-sm font-semibold text-brand-blue transition hover:bg-brand-gold/90 disabled:cursor-not-allowed disabled:opacity-60"
           >
             <RefreshCw className="h-4 w-4" />
-            إنشاء كود جديد
+            {generating ? 'جارٍ الإنشاء...' : 'إنشاء كود جديد'}
           </button>
         </div>
       </div>

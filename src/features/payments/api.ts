@@ -48,12 +48,18 @@ const fallbackGroups = (query: string) => {
 export const fetchStudentsByName = async (query: string): Promise<Student[]> => {
   if (hasSupabase && supabase) {
     try {
-      const { data, error } = await supabase
+      const normalized = query.trim();
+      let request = supabase
         .from('students')
         .select('id, full_name, phone, group_id, active, created_at')
-        .ilike('full_name', `%${query}%`)
         .order('full_name')
-        .limit(15);
+        .limit(30);
+
+      if (normalized) {
+        request = request.ilike('full_name', `%${normalized}%`);
+      }
+
+      const { data, error } = await request;
 
       if (error) {
         console.error('failed to fetch students', error);
@@ -77,12 +83,18 @@ export const fetchStudentsByName = async (query: string): Promise<Student[]> => 
 export const fetchGroupsByName = async (query: string): Promise<Group[]> => {
   if (hasSupabase && supabase) {
     try {
-      const { data, error } = await supabase
+      const normalized = query.trim();
+      let request = supabase
         .from('groups')
         .select('id, name, description, due_total, created_at')
-        .ilike('name', `%${query}%`)
         .order('name')
-        .limit(15);
+        .limit(30);
+
+      if (normalized) {
+        request = request.ilike('name', `%${normalized}%`);
+      }
+
+      const { data, error } = await request;
 
       if (error) {
         console.error('failed to fetch groups', error);
@@ -123,7 +135,11 @@ export const fetchAllPayments = async (): Promise<PaymentEntity[]> => {
         return [...paymentStore];
       }
 
-      return data.map((payment) => ({ ...payment, status: 'paid' as const }));
+      return data.map((payment) => ({
+        ...payment,
+        amount: Number(payment.amount ?? 0),
+        status: 'paid' as const
+      }));
     } catch (error) {
       console.error('failed to fetch payments', error);
       return [...paymentStore];
@@ -147,29 +163,23 @@ const computeGroupBalance = (groupId: string): GroupBalance => {
 export const getGroupBalance = async (groupId: string): Promise<GroupBalance> => {
   if (hasSupabase && supabase) {
     try {
-      const { data: groupData, error: groupError } = await supabase
-        .from('groups')
-        .select('due_total')
-        .eq('id', groupId)
-        .maybeSingle();
+      const [{ data: groupData, error: groupError }, { data: totalsData, error: totalsError }] = await Promise.all([
+        supabase.from('groups').select('due_total').eq('id', groupId).maybeSingle(),
+        supabase.from('group_paid_totals').select('paid_total').eq('group_id', groupId).maybeSingle()
+      ]);
 
       if (groupError) {
         console.error('failed to fetch group info', groupError);
         return computeGroupBalance(groupId);
       }
 
-      const { data: totalsData, error: totalsError } = await supabase
-        .from('payments')
-        .select('amount')
-        .eq('group_id', groupId);
-
       if (totalsError) {
-        console.error('failed to fetch group payments', totalsError);
+        console.error('failed to fetch group totals', totalsError);
         return computeGroupBalance(groupId);
       }
 
       const due = Number(groupData?.due_total ?? 0);
-      const paid = (totalsData ?? []).reduce((sum, item) => sum + Number(item.amount ?? 0), 0);
+      const paid = Number(totalsData?.paid_total ?? 0);
       const remaining = Math.max(0, due - paid);
       return { due_total: due, paid_total: paid, remaining };
     } catch (error) {
@@ -186,10 +196,12 @@ export const createStudentIfNotExists = async (name: string, phone?: string): Pr
 
   if (hasSupabase && supabase) {
     try {
+      const trimmed = name.trim();
       const { data: existing, error: fetchError } = await supabase
         .from('students')
         .select('id, full_name, phone, group_id, active, created_at')
-        .ilike('full_name', `%${name}%`)
+        .eq('full_name', trimmed)
+        .limit(1)
         .maybeSingle();
 
       if (fetchError && fetchError.code !== 'PGRST116') {
@@ -203,7 +215,7 @@ export const createStudentIfNotExists = async (name: string, phone?: string): Pr
 
       const { data, error } = await supabase
         .from('students')
-        .insert({ full_name: name, phone: phone ?? null, active: true })
+        .insert({ full_name: trimmed, phone: phone ?? null, active: true })
         .select('id, full_name, phone, group_id, active, created_at')
         .single();
 
@@ -266,7 +278,7 @@ export const createPayment = async (
       throw error;
     }
 
-    return data as Payment;
+    return { ...data, amount: Number(data?.amount ?? 0) } as Payment;
   }
 
   const payment: PaymentEntity = {
@@ -315,7 +327,7 @@ export const updatePayment = async (
       throw error;
     }
 
-    return data as Payment;
+    return { ...data, amount: Number(data?.amount ?? 0) } as Payment;
   }
 
   const index = paymentStore.findIndex((payment) => payment.id === id);
@@ -360,8 +372,9 @@ export const createStudent = async ({
   phone?: string | null;
   group_id?: string | null;
 }): Promise<Student> => {
+  const trimmedName = full_name.trim();
   const payload = {
-    full_name,
+    full_name: trimmedName,
     phone: phone ?? null,
     group_id: group_id ?? null,
     active: true
@@ -384,7 +397,7 @@ export const createStudent = async ({
 
   const student: Student = {
     id: `stu-${Date.now()}`,
-    full_name,
+    full_name: trimmedName,
     phone: phone ?? null,
     group_id: group_id ?? null,
     active: true,
@@ -407,7 +420,7 @@ export const updateStudent = async (
   if (hasSupabase && supabase) {
     const payload: Record<string, unknown> = {};
     if (Object.prototype.hasOwnProperty.call(input, 'full_name')) {
-      payload.full_name = input.full_name;
+      payload.full_name = input.full_name?.trim();
     }
     if (Object.prototype.hasOwnProperty.call(input, 'phone')) {
       payload.phone = input.phone ?? null;
@@ -461,7 +474,7 @@ export const updateStudent = async (
   const updated: Student = {
     ...current,
     full_name: Object.prototype.hasOwnProperty.call(input, 'full_name')
-      ? (input.full_name as string)
+      ? (input.full_name?.trim() as string)
       : current.full_name,
     phone: Object.prototype.hasOwnProperty.call(input, 'phone') ? (input.phone ?? null) : current.phone ?? null,
     group_id: Object.prototype.hasOwnProperty.call(input, 'group_id')
@@ -500,8 +513,9 @@ export const createGroupRecord = async ({
   description?: string | null;
   due_total?: number;
 }): Promise<Group> => {
+  const trimmedName = name.trim();
   const payload = {
-    name,
+    name: trimmedName,
     description: description ?? null,
     due_total: Number(due_total ?? 0)
   };
@@ -509,9 +523,9 @@ export const createGroupRecord = async ({
   if (hasSupabase && supabase) {
     const { data, error } = await supabase
       .from('groups')
-      .insert(payload)
-      .select('id, name, description, due_total, created_at')
-      .single();
+        .insert(payload)
+        .select('id, name, description, due_total, created_at')
+        .single();
 
     if (error) {
       console.error('failed to create group', error);
@@ -523,7 +537,7 @@ export const createGroupRecord = async ({
 
   const group: Group = {
     id: `grp-${Date.now()}`,
-    name,
+    name: trimmedName,
     description: description ?? null,
     due_total: Number(due_total ?? 0),
     created_at: new Date().toISOString().slice(0, 10)

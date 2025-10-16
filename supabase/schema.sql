@@ -9,6 +9,14 @@
 create extension if not exists "uuid-ossp";
 create extension if not exists pgcrypto;
 
+create or replace function set_updated_at()
+returns trigger as $$
+begin
+  new.updated_at = now();
+  return new;
+end;
+$$ language plpgsql;
+
 begin;
 
 -- Drop dependent views first.
@@ -86,8 +94,14 @@ create table guest_codes (
   code text not null unique,
   active boolean not null default true,
   created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
   expires_at timestamptz
 );
+
+create trigger guest_codes_set_updated
+before update on guest_codes
+for each row
+execute function set_updated_at();
 
 -- User-specific settings (e.g., reminder days).
 create table settings (
@@ -95,6 +109,23 @@ create table settings (
   reminder_days integer not null default 3 check (reminder_days >= 0),
   updated_at timestamptz not null default now()
 );
+
+-- Enable Row Level Security with permissive policies for demo usage.
+alter table users enable row level security;
+alter table groups enable row level security;
+alter table students enable row level security;
+alter table payments enable row level security;
+alter table expenses enable row level security;
+alter table guest_codes enable row level security;
+alter table settings enable row level security;
+
+create policy users_all on users for all using (true) with check (true);
+create policy groups_all on groups for all using (true) with check (true);
+create policy students_all on students for all using (true) with check (true);
+create policy payments_all on payments for all using (true) with check (true);
+create policy expenses_all on expenses for all using (true) with check (true);
+create policy guest_codes_all on guest_codes for all using (true) with check (true);
+create policy settings_all on settings for all using (true) with check (true);
 
 -- View summarizing total paid per group.
 create or replace view group_paid_totals as
@@ -167,7 +198,7 @@ values
 -- Guest code sample.
 insert into guest_codes (code, active)
 values ('GUEST-12345', true)
-on conflict (code) do update set active = excluded.active;
+on conflict (code) do update set active = excluded.active, updated_at = now();
 
 -- Default settings for the user.
 insert into settings (user_id, reminder_days)
