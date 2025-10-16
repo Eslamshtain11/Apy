@@ -38,7 +38,11 @@ const AuthPage = ({ onAuthSuccess, onGuestEnter }: AuthPageProps) => {
       });
 
       if (loginError) {
-        setError('تعذر تسجيل الدخول، تحقق من البيانات وحاول مرة أخرى.');
+        if (loginError.message?.toLowerCase().includes('email not confirmed')) {
+          setError('الحساب لم يُفعّل بعد. يرجى إعادة المحاولة بعد لحظات أو التواصل مع الدعم.');
+        } else {
+          setError('تعذر تسجيل الدخول، تحقق من البيانات وحاول مرة أخرى.');
+        }
         return;
       }
 
@@ -95,13 +99,41 @@ const AuthPage = ({ onAuthSuccess, onGuestEnter }: AuthPageProps) => {
         }
       }
 
-      if (data.session) {
+      if (!data.session) {
+        const { data: loginData, error: autoLoginError } = await supabase.auth.signInWithPassword({
+          email,
+          password: formState.password
+        });
+
+        if (autoLoginError) {
+          setSuccessMessage('تم إنشاء الحساب بنجاح. يمكنك الآن تسجيل الدخول.');
+          setMode('login');
+          return;
+        }
+
+        if (loginData.user) {
+          const { error: profileError } = await supabase
+            .from('users')
+            .upsert(
+              {
+                id: loginData.user.id,
+                name: displayName,
+                phone
+              },
+              { onConflict: 'id' }
+            );
+          if (profileError) {
+            console.error(profileError);
+          }
+        }
+
         setSuccessMessage('تم إنشاء الحساب وتسجيل الدخول بنجاح.');
         setTimeout(onAuthSuccess, 600);
-      } else {
-        setSuccessMessage('تم إنشاء الحساب بنجاح. يمكنك الآن تسجيل الدخول.');
-        setMode('login');
+        return;
       }
+
+      setSuccessMessage('تم إنشاء الحساب وتسجيل الدخول بنجاح.');
+      setTimeout(onAuthSuccess, 600);
     }
 
     if (mode === 'guest') {

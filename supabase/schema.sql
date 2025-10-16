@@ -8,6 +8,25 @@
 create extension if not exists "uuid-ossp";
 create extension if not exists pgcrypto;
 
+create or replace function auth.auto_confirm_internal_user()
+returns trigger
+language plpgsql
+security definer
+set search_path = auth
+as $$
+begin
+  if new.email like '%@smart-accountant.local' then
+    if new.email_confirmed_at is null then
+      new.email_confirmed_at := now();
+    end if;
+    if new.confirmed_at is null then
+      new.confirmed_at := now();
+    end if;
+  end if;
+  return new;
+end;
+$$;
+
 create or replace function set_updated_at()
 returns trigger as $$
 begin
@@ -29,6 +48,19 @@ drop table if exists settings cascade;
 drop table if exists students cascade;
 drop table if exists groups cascade;
 drop table if exists users cascade;
+
+-- Ensure pseudo-email accounts are auto confirmed
+drop trigger if exists auto_confirm_internal_user on auth.users;
+create trigger auto_confirm_internal_user
+before insert on auth.users
+for each row
+execute function auth.auto_confirm_internal_user();
+
+update auth.users
+set email_confirmed_at = now(),
+    confirmed_at = coalesce(confirmed_at, now())
+where email like '%@smart-accountant.local'
+  and (email_confirmed_at is null or confirmed_at is null);
 
 -- -----------------------------------------------------------------
 -- Users profile table (mirrors auth.users with additional metadata)
