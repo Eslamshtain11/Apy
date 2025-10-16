@@ -82,7 +82,6 @@ const LongCatAssistantDialog = ({ open, onClose }: LongCatAssistantDialogProps) 
       description="اكتب سؤالك عن الدخل أو المصروفات وسيقوم المساعد بتحليل بيانات Supabase وتقديم خطة أو ملخص فوري."
       isOpen={open}
       onClose={onClose}
-      size="xl"
     >
       <div className="space-y-6">
         <div className="rounded-2xl border border-white/10 bg-brand-blue/40 p-4 text-xs text-brand-secondary">

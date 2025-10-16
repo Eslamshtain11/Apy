@@ -11,6 +11,10 @@
     "forceConsistentCasingInFileNames": true,
     "module": "ESNext",
     "moduleResolution": "Node",
+    "baseUrl": ".",
+    "paths": {
+      "framer-motion": ["src/lib/framer-motion"]
+    },
     "resolveJsonModule": true,
     "isolatedModules": true,
     "noEmit": true,
