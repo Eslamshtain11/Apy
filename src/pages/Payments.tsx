@@ -4,113 +4,68 @@ import PageHeader from '../components/PageHeader';
 import StatCard from '../components/StatCard';
 import Modal from '../components/Modal';
 import EmptyState from '../components/EmptyState';
-import { payments as initialPayments, students, groups, expenses } from '../data/mockData';
-import { filterByMonth, formatCurrency, formatDate } from '../utils/format';
+import PaymentDialog from '../features/payments/PaymentDialog';
+import { monthOptions, expenses, type PaymentRecord } from '../data/mockData';
+import { egp, filterByMonth, formatDate } from '../utils/format';
 import { useSmartInsights } from '../features/analytics/useSmartInsights';
+import type { Group, Student } from '../types/db';
+import { listGroupsStore, listPaymentsStore, listStudentsStore } from '../features/payments/api';
 
 const PaymentRow = ({
-  studentName,
-  groupName,
-  amount,
-  date,
-  onEdit,
-  onDelete
+  payment,
+  student,
+  group
 }: {
-  studentName: string;
-  groupName: string;
-  amount: number;
-  date: string;
-  onEdit: () => void;
-  onDelete: () => void;
+  payment: PaymentRecord;
+  student?: Student;
+  group?: Group;
 }) => (
   <tr className="border-b border-white/5 hover:bg-brand-navy/40">
-    <td className="px-4 py-4 text-sm text-brand-light">{studentName}</td>
-    <td className="px-4 py-4 text-sm text-brand-secondary">{groupName}</td>
-    <td className="px-4 py-4 text-sm text-brand-light">{formatCurrency(amount)}</td>
-    <td className="px-4 py-4 text-sm text-brand-secondary">{formatDate(date)}</td>
-    <td className="px-4 py-4 text-sm text-brand-light">
-      <div className="flex items-center gap-3">
-        <button
-          onClick={onEdit}
-          className="rounded-lg border border-blue-400/40 px-3 py-1 text-xs font-semibold text-blue-300 transition hover:bg-blue-400/10"
-        >
-          تعديل
-        </button>
-        <button
-          onClick={onDelete}
-          className="rounded-lg border border-red-500/40 px-3 py-1 text-xs font-semibold text-red-300 transition hover:bg-red-500/10"
-        >
-          حذف
-        </button>
-      </div>
+    <td className="px-4 py-4 text-sm text-brand-light">{student?.full_name ?? '—'}</td>
+    <td className="px-4 py-4 text-sm text-brand-secondary">{group?.name ?? '—'}</td>
+    <td className="px-4 py-4 text-sm text-brand-light">{egp(payment.amount)}</td>
+    <td className="px-4 py-4 text-sm text-brand-secondary">{formatDate(payment.paid_at)}</td>
+    <td className="px-4 py-4 text-sm text-brand-secondary">
+      {payment.method === 'cash' ? 'نقدي' : payment.method === 'card' ? 'بطاقة' : 'تحويل'}
     </td>
+    <td className="px-4 py-4 text-sm text-brand-secondary">{payment.note ?? '—'}</td>
   </tr>
 );
 
 const Payments = () => {
-  const [paymentList, setPaymentList] = useState(initialPayments);
+  const [paymentList, setPaymentList] = useState<PaymentRecord[]>(() =>
+    listPaymentsStore().map((payment) => ({ ...payment, status: payment.status ?? 'paid' }))
+  );
+  const [studentsList, setStudentsList] = useState<Student[]>(() => [...listStudentsStore()]);
+  const [groupsList, setGroupsList] = useState<Group[]>(() => [...listGroupsStore()]);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedMonth, setSelectedMonth] = useState('all');
-  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isInsightsOpen, setIsInsightsOpen] = useState(false);
-  const [editablePaymentId, setEditablePaymentId] = useState<string | null>(null);
-  const [formState, setFormState] = useState({ studentId: students[0]?.id ?? '', amount: 0, date: '', status: 'paid' });
 
   const insights = useSmartInsights(paymentList, expenses);
 
   const filteredPayments = useMemo(() => {
-    const monthFiltered = filterByMonth(paymentList, selectedMonth);
-    if (!searchTerm) return monthFiltered;
+    const monthFiltered = filterByMonth(paymentList, selectedMonth, (item) => item.paid_at);
+    if (!searchTerm.trim()) return monthFiltered;
+    const normalized = searchTerm.trim().toLowerCase();
     return monthFiltered.filter((payment) => {
-      const student = students.find((item) => item.id === payment.studentId);
-      const group = groups.find((item) => item.id === student?.groupId);
-      const haystack = `${student?.name ?? ''} ${group?.name ?? ''}`.toLowerCase();
-      return haystack.includes(searchTerm.toLowerCase());
+      const student = payment.student_id
+        ? studentsList.find((item) => item.id === payment.student_id)
+        : undefined;
+      const group = payment.group_id ? groupsList.find((item) => item.id === payment.group_id) : undefined;
+      const haystack = `${student?.full_name ?? ''} ${group?.name ?? ''}`.toLowerCase();
+      return haystack.includes(normalized);
     });
-  }, [paymentList, searchTerm, selectedMonth]);
+  }, [paymentList, selectedMonth, searchTerm, studentsList, groupsList]);
 
   const totalAmount = filteredPayments.reduce((sum, payment) => sum + payment.amount, 0);
-
-  const openCreateModal = () => {
-    setEditablePaymentId(null);
-    setFormState({ studentId: students[0]?.id ?? '', amount: 0, date: '', status: 'paid' });
-    setIsModalOpen(true);
-  };
-
-  const openEditModal = (id: string) => {
-    const payment = paymentList.find((item) => item.id === id);
-    if (!payment) return;
-    setEditablePaymentId(id);
-    setFormState({
-      studentId: payment.studentId,
-      amount: payment.amount,
-      date: payment.date,
-      status: payment.status
-    });
-    setIsModalOpen(true);
-  };
-
-  const handleSubmit = () => {
-    if (!formState.studentId || !formState.date || !formState.amount) return;
-    if (editablePaymentId) {
-      setPaymentList((items) =>
-        items.map((item) => (item.id === editablePaymentId ? { ...item, ...formState } : item))
-      );
-    } else {
-      setPaymentList((items) => [
-        ...items,
-        {
-          id: `pay-${Date.now()}`,
-          ...formState
-        }
-      ]);
-    }
-    setIsModalOpen(false);
-  };
-
-  const handleDelete = (id: string) => {
-    setPaymentList((items) => items.filter((item) => item.id !== id));
-  };
+  const uniqueStudents = useMemo(() => {
+    const ids = filteredPayments
+      .map((payment) => payment.student_id)
+      .filter((id): id is string => Boolean(id));
+    return new Set(ids).size;
+  }, [filteredPayments]);
 
   return (
     <div className="space-y-8">
@@ -120,7 +75,7 @@ const Payments = () => {
         actions={
           <div className="flex flex-wrap items-center gap-3 text-sm">
             <button
-              onClick={openCreateModal}
+              onClick={() => setIsDialogOpen(true)}
               className="flex items-center gap-2 rounded-xl bg-brand-gold px-4 py-3 font-semibold text-brand-blue transition hover:bg-brand-gold/90"
             >
               <PlusCircle className="h-4 w-4" />
@@ -149,42 +104,42 @@ const Payments = () => {
         <StatCard title="عدد الدفعات" value={`${filteredPayments.length} عملية`} icon={<Filter className="h-10 w-10" />} />
         <StatCard
           title="إجمالي المبلغ"
-          value={formatCurrency(totalAmount)}
+          value={egp(totalAmount)}
           tone="highlight"
           icon={<FileSpreadsheet className="h-10 w-10" />}
         />
         <StatCard
           title="متوسط الدفع"
-          value={formatCurrency(filteredPayments.length ? Math.round(totalAmount / filteredPayments.length) : 0)}
+          value={filteredPayments.length ? egp(Math.round(totalAmount / filteredPayments.length)) : egp(0)}
           icon={<Search className="h-10 w-10" />}
         />
         <StatCard
-          title="طلاب نشطون"
-          value={`${new Set(filteredPayments.map((payment) => payment.studentId)).size} طالب`}
-          icon={<PlusCircle className="h-10 w-10" />}
+          title="عدد الطلاب الدافعين"
+          value={`${uniqueStudents} طالب`}
+          icon={<Filter className="h-10 w-10" />}
         />
       </section>
 
-      <div className="rounded-2xl border border-white/5 bg-brand-navy/40 p-6 shadow-soft">
+      <section className="rounded-2xl border border-white/5 bg-brand-navy/40 p-6 shadow-soft">
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-          <div className="flex flex-1 items-center gap-3 rounded-xl border border-white/10 bg-brand-blue/60 px-4 py-3 text-sm">
+          <div className="flex flex-1 items-center gap-3 rounded-xl border border-white/10 bg-brand-blue/40 px-4 py-3">
             <Search className="h-4 w-4 text-brand-secondary" />
             <input
               value={searchTerm}
               onChange={(event) => setSearchTerm(event.target.value)}
               placeholder="ابحث باسم الطالب أو المجموعة"
-              className="flex-1 bg-transparent text-brand-light focus:outline-none"
+              className="flex-1 bg-transparent text-sm text-brand-light placeholder:text-brand-secondary focus:outline-none"
             />
           </div>
           <select
             value={selectedMonth}
             onChange={(event) => setSelectedMonth(event.target.value)}
-            className="rounded-xl border border-white/10 bg-brand-blue/60 px-4 py-3 text-sm text-brand-light focus:border-brand-gold focus:outline-none"
+            className="w-full rounded-xl border border-white/10 bg-brand-blue/40 px-4 py-3 text-sm text-brand-light focus:border-brand-gold focus:outline-none md:w-60"
           >
             <option value="all">كل الشهور</option>
-            {Array.from({ length: 12 }).map((_, index) => (
-              <option key={index} value={String(index + 1).padStart(2, '0')}>
-                {new Intl.DateTimeFormat('ar-EG', { month: 'long' }).format(new Date(new Date().getFullYear(), index, 1))}
+            {monthOptions.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
               </option>
             ))}
           </select>
@@ -198,150 +153,93 @@ const Payments = () => {
                 <th className="px-4 py-3">المجموعة</th>
                 <th className="px-4 py-3">المبلغ</th>
                 <th className="px-4 py-3">التاريخ</th>
-                <th className="px-4 py-3">الإجراءات</th>
+                <th className="px-4 py-3">طريقة الدفع</th>
+                <th className="px-4 py-3">ملاحظات</th>
               </tr>
             </thead>
             <tbody>
               {filteredPayments.length ? (
-                filteredPayments.map((payment) => {
-                  const student = students.find((item) => item.id === payment.studentId);
-                  const group = groups.find((item) => item.id === student?.groupId);
-                  return (
-                    <PaymentRow
-                      key={payment.id}
-                      studentName={student?.name ?? 'غير معروف'}
-                      groupName={group?.name ?? 'غير معروف'}
-                      amount={payment.amount}
-                      date={payment.date}
-                      onEdit={() => openEditModal(payment.id)}
-                      onDelete={() => handleDelete(payment.id)}
-                    />
-                  );
-                })
+                filteredPayments.map((payment) => (
+                  <PaymentRow
+                    key={payment.id}
+                    payment={payment}
+                    student={payment.student_id ? studentsList.find((student) => student.id === payment.student_id) : undefined}
+                    group={payment.group_id ? groupsList.find((group) => group.id === payment.group_id) : undefined}
+                  />
+                ))
               ) : (
                 <tr>
-                  <td colSpan={5} className="px-4 py-12">
-                    <EmptyState
-                      title="لا توجد بيانات"
-                      description="لم يتم العثور على دفعات مطابقة للبحث الحالي."
-                    />
+                  <td colSpan={6} className="px-4 py-12">
+                    <EmptyState title="لا توجد دفعات" description="استخدم زر إضافة دفعة لتسجيل أول عملية." />
                   </td>
                 </tr>
               )}
             </tbody>
-            <tfoot>
-              <tr className="bg-brand-gold/10 text-sm font-semibold text-brand-light">
-                <td className="px-4 py-3" colSpan={2}>
-                  الإجمالي
-                </td>
-                <td className="px-4 py-3">{formatCurrency(totalAmount)}</td>
-                <td className="px-4 py-3" colSpan={2}>
-                  {filteredPayments.length} عملية
-                </td>
-              </tr>
-            </tfoot>
+            {filteredPayments.length > 0 && (
+              <tfoot>
+                <tr className="bg-brand-gold/10 text-sm font-semibold text-brand-light">
+                  <td className="px-4 py-3">الإجمالي</td>
+                  <td className="px-4 py-3">—</td>
+                  <td className="px-4 py-3">{egp(totalAmount)}</td>
+                  <td className="px-4 py-3" colSpan={3}>
+                    {filteredPayments.length} دفعات مسجلة
+                  </td>
+                </tr>
+              </tfoot>
+            )}
           </table>
         </div>
-      </div>
+      </section>
 
       <Modal
-        title={editablePaymentId ? 'تعديل الدفعة' : 'إضافة دفعة جديدة'}
-        description="قم بتعبئة تفاصيل الدفعة ثم اضغط حفظ للتحديث"
-        isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
-        footer={
-          <>
-            <button
-              onClick={() => setIsModalOpen(false)}
-              className="rounded-xl border border-white/10 px-4 py-2 text-sm text-brand-secondary hover:bg-white/10"
-            >
-              إلغاء
-            </button>
-            <button
-              onClick={handleSubmit}
-              className="rounded-xl bg-brand-gold px-4 py-2 text-sm font-semibold text-brand-blue hover:bg-brand-gold/90"
-            >
-              حفظ
-            </button>
-          </>
-        }
-      >
-        <label className="flex flex-col gap-2">
-          <span>الطالب</span>
-          <select
-            value={formState.studentId}
-            onChange={(event) => setFormState((state) => ({ ...state, studentId: event.target.value }))}
-            className="rounded-xl border border-white/10 bg-brand-blue/60 px-4 py-3 text-sm focus:border-brand-gold focus:outline-none"
-          >
-            {students.map((student) => (
-              <option key={student.id} value={student.id}>
-                {student.name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="flex flex-col gap-2">
-          <span>المبلغ</span>
-          <input
-            type="number"
-            value={formState.amount}
-            onChange={(event) => setFormState((state) => ({ ...state, amount: Number(event.target.value) }))}
-            className="rounded-xl border border-white/10 bg-brand-blue/60 px-4 py-3 text-sm focus:border-brand-gold focus:outline-none"
-          />
-        </label>
-        <label className="flex flex-col gap-2">
-          <span>التاريخ</span>
-          <input
-            type="date"
-            value={formState.date}
-            onChange={(event) => setFormState((state) => ({ ...state, date: event.target.value }))}
-            className="rounded-xl border border-white/10 bg-brand-blue/60 px-4 py-3 text-sm focus:border-brand-gold focus:outline-none"
-          />
-        </label>
-        <label className="flex flex-col gap-2">
-          <span>الحالة</span>
-          <select
-            value={formState.status}
-            onChange={(event) => setFormState((state) => ({ ...state, status: event.target.value as typeof formState.status }))}
-            className="rounded-xl border border-white/10 bg-brand-blue/60 px-4 py-3 text-sm focus:border-brand-gold focus:outline-none"
-          >
-            <option value="paid">مدفوع</option>
-            <option value="pending">قادم</option>
-            <option value="late">متأخر</option>
-          </select>
-        </label>
-      </Modal>
-
-      <Modal
-        title="تحليل Gemini الذكي"
-        description="استنادًا إلى بيانات الدخل والمصروفات الحالية"
         isOpen={isInsightsOpen}
         onClose={() => setIsInsightsOpen(false)}
-        footer={
-          <button
-            onClick={() => setIsInsightsOpen(false)}
-            className="rounded-xl bg-brand-gold px-4 py-2 text-sm font-semibold text-brand-blue hover:bg-brand-gold/90"
-          >
-            فهمت
-          </button>
-        }
+        title="تحليل ذكي"
+        description="أفكار سريعة لمساعدتك على تحسين التدفق النقدي"
       >
-        {insights.map((insight) => (
-          <div
-            key={insight.title}
-            className={`rounded-xl border px-4 py-3 text-sm transition ${
-              insight.tone === 'success'
-                ? 'border-green-600/40 bg-green-900/30 text-green-200'
-                : insight.tone === 'warning'
-                ? 'border-red-500/40 bg-red-900/30 text-red-200'
-                : 'border-purple-600/40 bg-purple-900/20 text-purple-100'
-            }`}
-          >
-            <h3 className="text-lg font-semibold">{insight.title}</h3>
-            <p className="mt-2 leading-7">{insight.description}</p>
-          </div>
-        ))}
+        <div className="space-y-4">
+          {insights.map((insight) => (
+            <div
+              key={insight.title}
+              className={`rounded-xl border px-4 py-3 text-sm ${
+                insight.tone === 'success'
+                  ? 'border-green-500/40 bg-green-900/20 text-green-200'
+                  : insight.tone === 'warning'
+                  ? 'border-red-500/40 bg-red-900/20 text-red-200'
+                  : 'border-white/10 bg-brand-blue/40 text-brand-secondary'
+              }`}
+            >
+              <h4 className="font-semibold text-brand-light">{insight.title}</h4>
+              <p className="mt-1 leading-6">{insight.description}</p>
+            </div>
+          ))}
+        </div>
       </Modal>
+
+      <PaymentDialog
+        isOpen={isDialogOpen}
+        onClose={() => setIsDialogOpen(false)}
+        onSuccess={({ payment, student, group, balance }) => {
+          setPaymentList((current) => [...current, { ...payment, status: 'paid' }]);
+          if (student) {
+            setStudentsList((current) => {
+              const exists = current.some((item) => item.id === student.id);
+              return exists ? current.map((item) => (item.id === student.id ? student : item)) : [...current, student];
+            });
+          }
+          if (group) {
+            setGroupsList((current) => {
+              const exists = current.some((item) => item.id === group.id);
+              return exists ? current.map((item) => (item.id === group.id ? group : item)) : [...current, group];
+            });
+          }
+          if (balance && group) {
+            setGroupsList((current) =>
+              current.map((item) => (item.id === group.id ? { ...item, due_total: group.due_total } : item))
+            );
+          }
+        }}
+      />
     </div>
   );
 };

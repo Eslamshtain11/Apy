@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import type { Expense, Payment } from '../../data/mockData';
+import type { Expense, PaymentRecord } from '../../data/mockData';
 import { formatCurrency } from '../../utils/format';
 
 type Insight = {
@@ -14,7 +14,7 @@ const toneByDifference = (difference: number): Insight['tone'] => {
   return 'info';
 };
 
-export const useSmartInsights = (payments: Payment[], expenses: Expense[]) => {
+export const useSmartInsights = (payments: Pick<PaymentRecord, 'amount' | 'paid_at'>[], expenses: Expense[]) => {
   return useMemo<Insight[]>(() => {
     if (!payments.length) {
       return [
@@ -28,11 +28,11 @@ export const useSmartInsights = (payments: Payment[], expenses: Expense[]) => {
 
     const currentMonth = new Date().getMonth() + 1;
     const monthlyIncome = payments
-      .filter((payment) => new Date(payment.date).getMonth() + 1 === currentMonth)
+      .filter((payment) => new Date(payment.paid_at).getMonth() + 1 === currentMonth)
       .reduce((sum, payment) => sum + payment.amount, 0);
 
     const previousIncome = payments
-      .filter((payment) => new Date(payment.date).getMonth() + 1 === currentMonth - 1)
+      .filter((payment) => new Date(payment.paid_at).getMonth() + 1 === currentMonth - 1)
       .reduce((sum, payment) => sum + payment.amount, 0);
 
     const expensesTotal = expenses

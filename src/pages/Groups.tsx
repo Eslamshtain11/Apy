@@ -15,7 +15,16 @@ const Groups = () => {
       setError('يرجى إدخال اسم المجموعة.');
       return;
     }
-    setGroupList((items) => [...items, { id: `grp-${Date.now()}`, name: groupName.trim() }]);
+    setGroupList((items) => [
+      ...items,
+      {
+        id: `grp-${Date.now()}`,
+        name: groupName.trim(),
+        description: null,
+        due_total: 0,
+        created_at: new Date().toISOString().slice(0, 10)
+      }
+    ]);
     setGroupName('');
     setError('');
   };
@@ -71,7 +80,7 @@ const Groups = () => {
           <div className="mt-6 space-y-4">
             {groupList.length ? (
               groupList.map((group) => {
-                const studentCount = students.filter((student) => student.groupId === group.id).length;
+                const studentCount = students.filter((student) => student.group_id === group.id).length;
                 return (
                   <div
                     key={group.id}

@@ -5,7 +5,7 @@ import PageHeader from '../components/PageHeader';
 import StatCard from '../components/StatCard';
 import EmptyState from '../components/EmptyState';
 import { payments, groups, students } from '../data/mockData';
-import { formatCurrency } from '../utils/format';
+import { egp } from '../utils/format';
 
 const chartColors = ['#D4AF37', '#60A5FA', '#818CF8', '#34D399', '#F87171'];
 
@@ -13,7 +13,7 @@ const Analytics = () => {
   const monthlyData = useMemo(() => {
     const map = new Map<string, number>();
     payments.forEach((payment) => {
-      const date = new Date(payment.date);
+      const date = new Date(payment.paid_at);
       const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
       map.set(key, (map.get(key) ?? 0) + payment.amount);
     });
@@ -29,8 +29,8 @@ const Analytics = () => {
   const groupedTotals = useMemo(() => {
     const map = new Map<string, number>();
     payments.forEach((payment) => {
-      const student = students.find((item) => item.id === payment.studentId);
-      const group = groups.find((item) => item?.id === student?.groupId);
+      const student = students.find((item) => item.id === payment.student_id);
+      const group = groups.find((item) => item?.id === student?.group_id);
       if (!group) return;
       map.set(group.name, (map.get(group.name) ?? 0) + payment.amount);
     });
@@ -54,13 +54,13 @@ const Analytics = () => {
       <section className="grid gap-6 md:grid-cols-2 xl:grid-cols-4">
         <StatCard
           title="أعلى شهر دخلًا"
-          value={highestMonth ? formatCurrency(highestMonth.total) : '—'}
+          value={highestMonth ? egp(highestMonth.total) : '—'}
           description={highestMonth?.label ?? 'لا توجد بيانات'}
           icon={<TrendingUp className="h-10 w-10" />}
         />
         <StatCard
           title="أقل شهر دخلًا"
-          value={lowestMonth ? formatCurrency(lowestMonth.total) : '—'}
+          value={lowestMonth ? egp(lowestMonth.total) : '—'}
           description={lowestMonth?.label ?? 'لا توجد بيانات'}
           tone="warning"
           icon={<TrendingDown className="h-10 w-10" />}
@@ -95,7 +95,7 @@ const Analytics = () => {
                       border: '1px solid rgba(255,255,255,0.1)',
                       color: '#CCD6F6'
                     }}
-                    formatter={(value: number) => formatCurrency(value)}
+                    formatter={(value: number) => egp(value)}
                   />
                   <Bar dataKey="total" radius={[12, 12, 0, 0]} fill="#D4AF37" />
                 </BarChart>
@@ -128,7 +128,7 @@ const Analytics = () => {
                       border: '1px solid rgba(255,255,255,0.1)',
                       color: '#CCD6F6'
                     }}
-                    formatter={(value: number, name: string) => [`${formatCurrency(value)} `, name]}
+                    formatter={(value: number, name: string) => [`${egp(value)} `, name]}
                   />
                 </PieChart>
               </ResponsiveContainer>

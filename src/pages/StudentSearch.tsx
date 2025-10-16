@@ -12,16 +12,16 @@ const StudentSearch = () => {
   const matchedStudent = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
     if (!normalizedQuery) return students[0];
-    return students.find((student) => student.name.toLowerCase().includes(normalizedQuery));
+    return students.find((student) => student.full_name.toLowerCase().includes(normalizedQuery));
   }, [query]);
 
   const studentPayments = useMemo(() => {
     if (!matchedStudent) return [];
-    return payments.filter((payment) => payment.studentId === matchedStudent.id);
+    return payments.filter((payment) => payment.student_id === matchedStudent.id);
   }, [matchedStudent]);
 
   const totalAmount = studentPayments.reduce((sum, payment) => sum + payment.amount, 0);
-  const group = groups.find((item) => item.id === matchedStudent?.groupId ?? '');
+  const group = groups.find((item) => item.id === matchedStudent?.group_id ?? '');
 
   return (
     <div className="space-y-8">
@@ -47,7 +47,7 @@ const StudentSearch = () => {
           <section className="grid gap-6 md:grid-cols-3">
             <StatCard
               title="الطالب"
-              value={matchedStudent.name}
+              value={matchedStudent.full_name}
               description={group?.name ?? '—'}
             />
             <StatCard
@@ -74,7 +74,7 @@ const StudentSearch = () => {
                 {studentPayments.length ? (
                   studentPayments.map((payment) => (
                     <tr key={payment.id} className="border-b border-white/5 hover:bg-brand-navy/40">
-                      <td className="px-4 py-4 text-sm text-brand-secondary">{formatDate(payment.date)}</td>
+                      <td className="px-4 py-4 text-sm text-brand-secondary">{formatDate(payment.paid_at)}</td>
                       <td className="px-4 py-4 text-sm text-brand-light">{formatCurrency(payment.amount)}</td>
                       <td className="px-4 py-4 text-sm text-brand-light">
                         <span

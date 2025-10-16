@@ -13,14 +13,18 @@ const Dashboard = () => {
   const [reminderDays, setReminderDays] = useState(3);
 
   const { netIncome, totalIncome, totalExpenses, payingStudents, latePayments, upcomingPayments } = useMemo(() => {
-    const filteredPayments = filterByMonth(payments, selectedMonth);
+    const filteredPayments = filterByMonth(payments, selectedMonth, (payment) => payment.paid_at);
     const filteredExpenses = filterByMonth(expenses, selectedMonth);
 
     const totalIncomeValue = filteredPayments.reduce((sum, payment) => sum + payment.amount, 0);
     const totalExpensesValue = filteredExpenses.reduce((sum, expense) => sum + expense.amount, 0);
     const netIncomeValue = totalIncomeValue - totalExpensesValue;
 
-    const payingStudentsSet = new Set(filteredPayments.filter((payment) => payment.status === 'paid').map((p) => p.studentId));
+    const payingStudentsSet = new Set(
+      filteredPayments
+        .filter((payment) => payment.status === 'paid' && payment.student_id)
+        .map((p) => p.student_id as string)
+    );
 
     return {
       totalIncome: totalIncomeValue,
@@ -34,7 +38,9 @@ const Dashboard = () => {
 
   const months = useMemo(() => {
     const allMonths = new Set(
-      payments.map((payment) => new Date(payment.date)).map((date) => `${date.getMonth() + 1}`.padStart(2, '0'))
+      payments
+        .map((payment) => new Date(payment.paid_at))
+        .map((date) => `${date.getMonth() + 1}`.padStart(2, '0'))
     );
     return ['all', ...Array.from(allMonths)];
   }, []);
@@ -155,13 +161,13 @@ const Dashboard = () => {
             <div className="mt-4 space-y-3 text-sm">
               {latePayments.length ? (
                 latePayments.map((payment) => {
-                  const student = students.find((item) => item.id === payment.studentId);
+                  const student = students.find((item) => item.id === payment.student_id);
                   return (
                     <div
                       key={payment.id}
                       className="flex items-center justify-between rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3"
                     >
-                      <span>{student?.name ?? 'طالب غير معروف'}</span>
+                      <span>{student?.full_name ?? 'طالب غير معروف'}</span>
                       <span>{formatCurrency(payment.amount)}</span>
                     </div>
                   );
@@ -177,13 +183,13 @@ const Dashboard = () => {
             <div className="mt-4 space-y-3 text-sm">
               {upcomingPayments.length ? (
                 upcomingPayments.map((payment) => {
-                  const student = students.find((item) => item.id === payment.studentId);
+                  const student = students.find((item) => item.id === payment.student_id);
                   return (
                     <div
                       key={payment.id}
                       className="flex items-center justify-between rounded-xl border border-brand-gold/30 bg-brand-blue/60 px-4 py-3"
                     >
-                      <span>{student?.name ?? 'طالب غير معروف'}</span>
+                      <span>{student?.full_name ?? 'طالب غير معروف'}</span>
                       <span>{formatCurrency(payment.amount)}</span>
                     </div>
                   );

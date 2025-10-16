@@ -1,9 +1,10 @@
-export const formatCurrency = (value: number) =>
+export const egp = (value: number) =>
   new Intl.NumberFormat('ar-EG', {
     style: 'currency',
-    currency: 'EGP',
-    maximumFractionDigits: 0
-  }).format(value);
+    currency: 'EGP'
+  }).format(value || 0);
+
+export const formatCurrency = egp;
 
 export const formatDate = (value: string) =>
   new Intl.DateTimeFormat('ar-EG', {
@@ -14,8 +15,16 @@ export const formatDate = (value: string) =>
 
 export const getMonthKey = (value: string) => new Date(value).getMonth() + 1;
 
-export const filterByMonth = <T extends { date: string }>(items: T[], month?: string) => {
+export const filterByMonth = <T>(
+  items: T[],
+  month?: string,
+  getDate: (item: T) => string = (item: any) => (item?.date as string) ?? ''
+) => {
   if (!month || month === 'all') return items;
   const numericMonth = parseInt(month, 10);
-  return items.filter((item) => getMonthKey(item.date) === numericMonth);
+  return items.filter((item) => {
+    const dateValue = getDate(item);
+    if (!dateValue) return false;
+    return getMonthKey(dateValue) === numericMonth;
+  });
 };

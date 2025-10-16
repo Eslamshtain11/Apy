@@ -5,7 +5,10 @@ import { filterByMonth, formatCurrency, formatDate } from '../utils/format';
 
 const GuestView = () => {
   const [selectedMonth, setSelectedMonth] = useState('all');
-  const filteredPayments = useMemo(() => filterByMonth(payments, selectedMonth), [selectedMonth]);
+  const filteredPayments = useMemo(
+    () => filterByMonth(payments, selectedMonth, (payment) => payment.paid_at),
+    [selectedMonth]
+  );
   const totalAmount = filteredPayments.reduce((sum, payment) => sum + payment.amount, 0);
 
   return (
@@ -77,7 +80,7 @@ const GuestView = () => {
                   <tr key={payment.id} className="border-b border-white/5 hover:bg-brand-navy/40">
                     <td className="px-4 py-4 text-sm text-brand-light">طالب {index + 1}</td>
                     <td className="px-4 py-4 text-sm text-brand-light">{formatCurrency(payment.amount)}</td>
-                    <td className="px-4 py-4 text-sm text-brand-secondary">{formatDate(payment.date)}</td>
+                    <td className="px-4 py-4 text-sm text-brand-secondary">{formatDate(payment.paid_at)}</td>
                   </tr>
                 ))}
               </tbody>
