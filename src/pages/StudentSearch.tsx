@@ -21,7 +21,7 @@ const StudentSearch = () => {
   }, [matchedStudent]);
 
   const totalAmount = studentPayments.reduce((sum, payment) => sum + payment.amount, 0);
-  const group = groups.find((item) => item.id === matchedStudent?.group_id ?? '');
+  const group = groups.find((item) => item.id === (matchedStudent?.group_id ?? ''));
 
   return (
     <div className="space-y-8">

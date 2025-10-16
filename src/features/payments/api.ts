@@ -351,6 +351,250 @@ export const deletePayment = async (id: string): Promise<void> => {
   }
 };
 
+export const createStudent = async ({
+  full_name,
+  phone,
+  group_id
+}: {
+  full_name: string;
+  phone?: string | null;
+  group_id?: string | null;
+}): Promise<Student> => {
+  const payload = {
+    full_name,
+    phone: phone ?? null,
+    group_id: group_id ?? null,
+    active: true
+  };
+
+  if (hasSupabase && supabase) {
+    const { data, error } = await supabase
+      .from('students')
+      .insert(payload)
+      .select('id, full_name, phone, group_id, active, created_at')
+      .single();
+
+    if (error) {
+      console.error('failed to create student', error);
+      throw error;
+    }
+
+    return data as Student;
+  }
+
+  const student: Student = {
+    id: `stu-${Date.now()}`,
+    full_name,
+    phone: phone ?? null,
+    group_id: group_id ?? null,
+    active: true,
+    created_at: new Date().toISOString().slice(0, 10)
+  };
+
+  studentStore.push(student);
+  return student;
+};
+
+export const updateStudent = async (
+  id: string,
+  input: Partial<{
+    full_name: string;
+    phone: string | null;
+    group_id: string | null;
+    active: boolean;
+  }>
+): Promise<Student> => {
+  if (hasSupabase && supabase) {
+    const payload: Record<string, unknown> = {};
+    if (Object.prototype.hasOwnProperty.call(input, 'full_name')) {
+      payload.full_name = input.full_name;
+    }
+    if (Object.prototype.hasOwnProperty.call(input, 'phone')) {
+      payload.phone = input.phone ?? null;
+    }
+    if (Object.prototype.hasOwnProperty.call(input, 'group_id')) {
+      payload.group_id = input.group_id ?? null;
+    }
+    if (Object.prototype.hasOwnProperty.call(input, 'active')) {
+      payload.active = input.active;
+    }
+
+    if (Object.keys(payload).length === 0) {
+      const { data, error } = await supabase
+        .from('students')
+        .select('id, full_name, phone, group_id, active, created_at')
+        .eq('id', id)
+        .single();
+
+      if (error) {
+        console.error('failed to load student', error);
+        throw error;
+      }
+
+      return data as Student;
+    }
+
+    const { data, error } = await supabase
+      .from('students')
+      .update(payload)
+      .eq('id', id)
+      .select('id, full_name, phone, group_id, active, created_at')
+      .single();
+
+    if (error) {
+      console.error('failed to update student', error);
+      throw error;
+    }
+
+    return data as Student;
+  }
+
+  const index = studentStore.findIndex((student) => student.id === id);
+  if (index === -1) {
+    throw new Error('student not found');
+  }
+
+  const current = studentStore[index];
+  if (Object.keys(input).length === 0) {
+    return current;
+  }
+  const updated: Student = {
+    ...current,
+    full_name: Object.prototype.hasOwnProperty.call(input, 'full_name')
+      ? (input.full_name as string)
+      : current.full_name,
+    phone: Object.prototype.hasOwnProperty.call(input, 'phone') ? (input.phone ?? null) : current.phone ?? null,
+    group_id: Object.prototype.hasOwnProperty.call(input, 'group_id')
+      ? input.group_id ?? null
+      : current.group_id ?? null,
+    active: Object.prototype.hasOwnProperty.call(input, 'active') ? Boolean(input.active) : current.active,
+    created_at: current.created_at
+  };
+
+  studentStore[index] = updated;
+  return updated;
+};
+
+export const deleteStudent = async (id: string): Promise<void> => {
+  if (hasSupabase && supabase) {
+    const { error } = await supabase.from('students').delete().eq('id', id);
+    if (error) {
+      console.error('failed to delete student', error);
+      throw error;
+    }
+    return;
+  }
+
+  const index = studentStore.findIndex((student) => student.id === id);
+  if (index !== -1) {
+    studentStore.splice(index, 1);
+  }
+};
+
+export const createGroupRecord = async ({
+  name,
+  description,
+  due_total
+}: {
+  name: string;
+  description?: string | null;
+  due_total?: number;
+}): Promise<Group> => {
+  const payload = {
+    name,
+    description: description ?? null,
+    due_total: Number(due_total ?? 0)
+  };
+
+  if (hasSupabase && supabase) {
+    const { data, error } = await supabase
+      .from('groups')
+      .insert(payload)
+      .select('id, name, description, due_total, created_at')
+      .single();
+
+    if (error) {
+      console.error('failed to create group', error);
+      throw error;
+    }
+
+    return { ...data, due_total: Number(data?.due_total ?? 0) } as Group;
+  }
+
+  const group: Group = {
+    id: `grp-${Date.now()}`,
+    name,
+    description: description ?? null,
+    due_total: Number(due_total ?? 0),
+    created_at: new Date().toISOString().slice(0, 10)
+  };
+
+  groupStore.push(group);
+  return group;
+};
+
+export const deleteGroupRecord = async (id: string): Promise<void> => {
+  if (hasSupabase && supabase) {
+    const { error } = await supabase.from('groups').delete().eq('id', id);
+    if (error) {
+      console.error('failed to delete group', error);
+      throw error;
+    }
+    return;
+  }
+
+  const index = groupStore.findIndex((group) => group.id === id);
+  if (index !== -1) {
+    groupStore.splice(index, 1);
+  }
+
+  studentStore.forEach((student, studentIndex) => {
+    if (student.group_id === id) {
+      studentStore[studentIndex] = { ...student, group_id: null };
+    }
+  });
+};
+
+export const assignStudentsToGroup = async (
+  groupId: string,
+  studentIds: string[]
+): Promise<void> => {
+  if (hasSupabase && supabase) {
+    const { error: clearError } = await supabase.from('students').update({ group_id: null }).eq('group_id', groupId);
+    if (clearError) {
+      console.error('failed to clear previous members', clearError);
+      throw clearError;
+    }
+
+    if (studentIds.length) {
+      const { error: assignError } = await supabase
+        .from('students')
+        .update({ group_id: groupId })
+        .in('id', studentIds);
+
+      if (assignError) {
+        console.error('failed to assign students', assignError);
+        throw assignError;
+      }
+    }
+
+    return;
+  }
+
+  studentStore.forEach((student, index) => {
+    if (student.group_id === groupId && !studentIds.includes(student.id)) {
+      studentStore[index] = { ...student, group_id: null };
+    }
+  });
+
+  studentIds.forEach((studentId) => {
+    const studentIndex = studentStore.findIndex((student) => student.id === studentId);
+    if (studentIndex !== -1) {
+      studentStore[studentIndex] = { ...studentStore[studentIndex], group_id: groupId };
+    }
+  });
+};
+
 export const listStudentsStore = (): Student[] => studentStore;
 export const listGroupsStore = (): Group[] => groupStore;
 export const listPaymentsStore = (): PaymentEntity[] => paymentStore;

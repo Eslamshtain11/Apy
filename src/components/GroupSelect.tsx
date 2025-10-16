@@ -33,12 +33,38 @@ const GroupSelect = ({ value, onChange, onBalanceChange, disabled, error }: Grou
   const debounced = useDebouncedValue(query);
 
   useEffect(() => {
+    let active = true;
     setLoading(true);
     fetchGroupsByName(debounced)
-      .then(setOptions)
-      .catch(() => setOptions([]))
-      .finally(() => setLoading(false));
+      .then((results) => {
+        if (!active) return;
+        setOptions(results);
+      })
+      .catch(() => {
+        if (!active) return;
+        setOptions([]);
+      })
+      .finally(() => {
+        if (active) {
+          setLoading(false);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
   }, [debounced]);
+
+  useEffect(() => {
+    if (value) {
+      setOptions((current) => {
+        if (current.some((option) => option.id === value.id)) {
+          return current;
+        }
+        return [value, ...current];
+      });
+    }
+  }, [value]);
 
   useEffect(() => {
     const handler = (event: MouseEvent) => {

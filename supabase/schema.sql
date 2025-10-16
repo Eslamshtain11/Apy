@@ -37,8 +37,9 @@ create table groups (
   id uuid primary key default gen_random_uuid(),
   name text not null,
   description text,
-  due_total numeric(12,2) not null default 0,
-  created_at timestamptz not null default now()
+  due_total numeric(12,2) not null default 0 check (due_total >= 0),
+  created_at timestamptz not null default now(),
+  constraint groups_name_unique unique (name)
 );
 
 -- Students optionally belong to a group.
@@ -51,6 +52,8 @@ create table students (
   created_at timestamptz not null default now(),
   constraint students_full_name_phone_unique unique (full_name, phone)
 );
+
+create index students_group_id_idx on students(group_id);
 
 -- Payments can be tied to a student, a group, or both.
 create table payments (
@@ -113,11 +116,14 @@ values ('أ. محمود السيد', '01000000000', '$2a$10$samplehashforlocalde
 on conflict (phone) do update set name = excluded.name;
 
 -- Insert groups with target dues.
-insert into groups (id, name, description, due_total)
+insert into groups (name, description, due_total)
 values
-  (gen_random_uuid(), 'مجموعة الفيزياء - ثالثة ثانوي', 'حصص أسبوعية للفيزياء', 12000.00),
-  (gen_random_uuid(), 'مجموعة الرياضيات - ثانية ثانوي', 'مراجعات رياضيات مكثفة', 9500.00),
-  (gen_random_uuid(), 'مجموعة الكيمياء - ثالثة ثانوي', 'تحضير للثانوية العامة', 8400.00);
+  ('مجموعة الفيزياء - ثالثة ثانوي', 'حصص أسبوعية للفيزياء', 12000.00),
+  ('مجموعة الرياضيات - ثانية ثانوي', 'مراجعات رياضيات مكثفة', 9500.00),
+  ('مجموعة الكيمياء - ثالثة ثانوي', 'تحضير للثانوية العامة', 8400.00)
+on conflict (name) do update set
+  description = excluded.description,
+  due_total = excluded.due_total;
 
 -- Insert students linked to groups.
 insert into students (full_name, phone, group_id)
@@ -129,7 +135,12 @@ select 'محمود حسن', '01112312345', id from groups where name = 'مجمو
 union all
 select 'إيمان فؤاد', '01234567890', id from groups where name = 'مجموعة الكيمياء - ثالثة ثانوي'
 union all
-select 'يوسف خالد', null, id from groups where name = 'مجموعة الرياضيات - ثانية ثانوي';
+select 'يوسف خالد', null, id from groups where name = 'مجموعة الرياضيات - ثانية ثانوي'
+union all
+select 'ملك عمرو', '01055577889', id from groups where name = 'مجموعة الفيزياء - ثالثة ثانوي'
+union all
+select 'هدى عصام', '01066554432', id from groups where name = 'مجموعة الكيمياء - ثالثة ثانوي'
+on conflict (full_name, phone) do update set group_id = excluded.group_id;
 
 -- Seed sample payments (student-level and group-level).
 insert into payments (student_id, group_id, amount, method, paid_at, note)

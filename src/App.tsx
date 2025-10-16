@@ -6,6 +6,7 @@ import Payments from './pages/Payments';
 import Expenses from './pages/Expenses';
 import Analytics from './pages/Analytics';
 import StudentSearch from './pages/StudentSearch';
+import StudentManager from './pages/StudentManager';
 import Groups from './pages/Groups';
 import GuestCodes from './pages/GuestCodes';
 import GuestView from './pages/GuestView';
@@ -76,6 +77,7 @@ const App = () => {
         <Route path="expenses" element={<Expenses />} />
         <Route path="analytics" element={<Analytics />} />
         <Route path="students" element={<StudentSearch />} />
+        <Route path="student-management" element={<StudentManager />} />
         <Route path="groups" element={<Groups />} />
         <Route path="guest-codes" element={<GuestCodes />} />
       </Route>

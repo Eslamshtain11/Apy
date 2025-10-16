@@ -1,32 +1,85 @@
-import { useState } from 'react';
-import { PlusCircle, ShieldAlert, Trash } from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
+import { Loader2, PlusCircle, ShieldAlert, Trash } from 'lucide-react';
 import PageHeader from '../components/PageHeader';
 import EmptyState from '../components/EmptyState';
 import StatCard from '../components/StatCard';
-import { groups as initialGroups, students } from '../data/mockData';
+import type { Group, Student } from '../types/db';
+import {
+  assignStudentsToGroup,
+  createGroupRecord,
+  deleteGroupRecord,
+  fetchAllGroups,
+  fetchAllStudents
+} from '../features/payments/api';
+import { egp } from '../utils/format';
+import { toast } from 'sonner';
 
 const Groups = () => {
   const [groupName, setGroupName] = useState('');
-  const [groupList, setGroupList] = useState(initialGroups);
+  const [groupTarget, setGroupTarget] = useState('');
+  const [groupList, setGroupList] = useState<Group[]>([]);
+  const [studentsList, setStudentsList] = useState<Student[]>([]);
+  const [membershipDrafts, setMembershipDrafts] = useState<Record<string, string[]>>({});
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [savingMembership, setSavingMembership] = useState<string | null>(null);
+  const [addingGroup, setAddingGroup] = useState(false);
+  const [deletingGroup, setDeletingGroup] = useState<string | null>(null);
+
+  const refreshData = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [groups, students] = await Promise.all([fetchAllGroups(), fetchAllStudents()]);
+      setGroupList(groups);
+      setStudentsList(students);
+      const drafts: Record<string, string[]> = {};
+      groups.forEach((group) => {
+        drafts[group.id] = students.filter((student) => student.group_id === group.id).map((student) => student.id);
+      });
+      setMembershipDrafts(drafts);
+    } catch (error_) {
+      console.error(error_);
+      toast.error('تعذر تحميل بيانات المجموعات');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshData();
+  }, [refreshData]);
 
   const handleAddGroup = () => {
     if (!groupName.trim()) {
       setError('يرجى إدخال اسم المجموعة.');
       return;
     }
-    setGroupList((items) => [
-      ...items,
-      {
-        id: `grp-${Date.now()}`,
-        name: groupName.trim(),
-        description: null,
-        due_total: 0,
-        created_at: new Date().toISOString().slice(0, 10)
-      }
-    ]);
-    setGroupName('');
+    setAddingGroup(true);
     setError('');
+    const due = Number(groupTarget) || 0;
+    if (due < 0) {
+      setError('المبلغ المستهدف لا يمكن أن يكون سالباً.');
+      setAddingGroup(false);
+      return;
+    }
+
+    (async () => {
+      try {
+        await createGroupRecord({
+          name: groupName.trim(),
+          due_total: due
+        });
+        toast.success('تم إنشاء المجموعة بنجاح');
+        setGroupName('');
+        setGroupTarget('');
+        await refreshData();
+      } catch (error_) {
+        console.error(error_);
+        toast.error('تعذر إنشاء المجموعة الجديدة');
+      } finally {
+        setAddingGroup(false);
+      }
+    })();
   };
 
   const handleDeleteGroup = (id: string) => {
@@ -34,7 +87,48 @@ const Groups = () => {
       setError('لا يمكن حذف آخر مجموعة متاحة.');
       return;
     }
-    setGroupList((items) => items.filter((item) => item.id !== id));
+    const group = groupList.find((item) => item.id === id);
+    if (!group) return;
+
+    const confirmed = window.confirm(`هل تريد حذف المجموعة "${group.name}"؟ سيتم فك ارتباط طلابها.`);
+    if (!confirmed) return;
+
+    setDeletingGroup(id);
+    (async () => {
+      try {
+        await deleteGroupRecord(id);
+        toast.success('تم حذف المجموعة');
+        await refreshData();
+      } catch (error_) {
+        console.error(error_);
+        toast.error('تعذر حذف المجموعة');
+      } finally {
+        setDeletingGroup(null);
+      }
+    })();
+  };
+
+  const handleMembershipChange = (groupId: string, selected: HTMLCollectionOf<HTMLOptionElement>) => {
+    const selection = Array.from(selected).map((option) => option.value);
+    setMembershipDrafts((current) => ({
+      ...current,
+      [groupId]: selection
+    }));
+  };
+
+  const handleSaveMembership = async (groupId: string) => {
+    const members = membershipDrafts[groupId] ?? [];
+    setSavingMembership(groupId);
+    try {
+      await assignStudentsToGroup(groupId, members);
+      toast.success('تم تحديث طلاب المجموعة');
+      await refreshData();
+    } catch (error_) {
+      console.error(error_);
+      toast.error('تعذر تحديث طلاب المجموعة');
+    } finally {
+      setSavingMembership(null);
+    }
   };
 
   return (
@@ -57,6 +151,15 @@ const Groups = () => {
               placeholder="مثال: فيزياء - ثالث ثانوي"
               className="w-full rounded-xl border border-white/10 bg-brand-blue/60 px-4 py-3 text-sm focus:border-brand-gold focus:outline-none"
             />
+            <input
+              value={groupTarget}
+              onChange={(event) => setGroupTarget(event.target.value)}
+              type="number"
+              min="0"
+              step="100"
+              placeholder="إجمالي المستهدف للمجموعة (اختياري)"
+              className="w-full rounded-xl border border-white/10 bg-brand-blue/60 px-4 py-3 text-sm focus:border-brand-gold focus:outline-none"
+            />
             {error && (
               <div className="flex items-center gap-2 rounded-xl border border-red-500/30 bg-red-900/30 px-4 py-3 text-sm text-red-200">
                 <ShieldAlert className="h-4 w-4" />
@@ -65,10 +168,11 @@ const Groups = () => {
             )}
             <button
               onClick={handleAddGroup}
-              className="flex w-full items-center justify-center gap-2 rounded-xl bg-brand-gold px-4 py-3 text-sm font-semibold text-brand-blue transition hover:bg-brand-gold/90"
+              disabled={addingGroup}
+              className="flex w-full items-center justify-center gap-2 rounded-xl bg-brand-gold px-4 py-3 text-sm font-semibold text-brand-blue transition hover:bg-brand-gold/90 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              <PlusCircle className="h-4 w-4" />
-              إضافة المجموعة
+              {addingGroup ? <Loader2 className="h-4 w-4 animate-spin" /> : <PlusCircle className="h-4 w-4" />}
+              {addingGroup ? 'جارٍ الإضافة' : 'إضافة المجموعة'}
             </button>
           </div>
         </div>
@@ -78,33 +182,61 @@ const Groups = () => {
             إدارة سريعة للمجموعات المرتبطة بالطلاب الحاليين.
           </p>
           <div className="mt-6 space-y-4">
-            {groupList.length ? (
+            {loading ? (
+              <div className="flex items-center gap-2 text-sm text-brand-secondary">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                <span>جارٍ تحميل المجموعات...</span>
+              </div>
+            ) : groupList.length ? (
               groupList.map((group) => {
-                const studentCount = students.filter((student) => student.group_id === group.id).length;
+                const studentCount = studentsList.filter((student) => student.group_id === group.id).length;
                 return (
-                  <div
-                    key={group.id}
-                    className="flex items-center justify-between rounded-xl border border-white/10 bg-brand-blue/60 px-4 py-3 text-sm"
-                  >
-                    <div>
-                      <p className="font-semibold text-brand-light">{group.name}</p>
-                      <p className="text-xs text-brand-secondary">{studentCount} طالب</p>
+                  <div key={group.id} className="space-y-4 rounded-xl border border-white/10 bg-brand-blue/60 p-4 text-sm">
+                    <div className="flex items-center justify-between gap-4">
+                      <div>
+                        <p className="font-semibold text-brand-light">{group.name}</p>
+                        <p className="text-xs text-brand-secondary">
+                          {studentCount} طالب • المستهدف {egp(group.due_total)}
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => handleDeleteGroup(group.id)}
+                        disabled={deletingGroup === group.id}
+                        className="flex items-center gap-2 rounded-lg border border-red-500/40 px-3 py-2 text-xs font-semibold text-red-300 transition hover:bg-red-500/10 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        <Trash className="h-4 w-4" />
+                        {deletingGroup === group.id ? 'جارٍ الحذف' : 'حذف'}
+                      </button>
                     </div>
-                    <button
-                      onClick={() => handleDeleteGroup(group.id)}
-                      className="flex items-center gap-2 rounded-lg border border-red-500/40 px-3 py-2 text-xs font-semibold text-red-300 transition hover:bg-red-500/10"
-                    >
-                      <Trash className="h-4 w-4" />
-                      حذف
-                    </button>
+                    <div>
+                      <label className="mb-2 block text-xs text-brand-secondary">حدد الطلاب المنتسبين</label>
+                      <select
+                        multiple
+                        value={membershipDrafts[group.id] ?? []}
+                        onChange={(event) => handleMembershipChange(group.id, event.target.selectedOptions)}
+                        className="h-32 w-full rounded-xl border border-white/10 bg-brand-navy/60 px-3 py-2 text-right text-xs text-brand-light focus:border-brand-gold focus:outline-none"
+                      >
+                        {studentsList.map((student) => (
+                          <option key={student.id} value={student.id} className="bg-brand-navy text-brand-light">
+                            {student.full_name}
+                          </option>
+                        ))}
+                      </select>
+                      <div className="mt-3 flex justify-end">
+                        <button
+                          onClick={() => handleSaveMembership(group.id)}
+                          disabled={savingMembership === group.id}
+                          className="rounded-lg border border-brand-gold px-3 py-2 text-xs font-semibold text-brand-gold transition hover:bg-brand-gold/10 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {savingMembership === group.id ? 'جارٍ الحفظ' : 'حفظ الإعدادات'}
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 );
               })
             ) : (
-              <EmptyState
-                title="لا توجد مجموعات"
-                description="أضف مجموعة جديدة لبدء تنظيم الطلاب."
-              />
+              <EmptyState title="لا توجد مجموعات" description="أضف مجموعة جديدة لبدء تنظيم الطلاب." />
             )}
           </div>
         </div>
@@ -114,9 +246,9 @@ const Groups = () => {
         <StatCard title="إجمالي المجموعات" value={`${groupList.length}`} />
         <StatCard
           title="متوسط الطلاب في المجموعة"
-          value={groupList.length ? Math.round(students.length / groupList.length) : 0}
+          value={groupList.length ? Math.round(studentsList.length / groupList.length) : 0}
         />
-        <StatCard title="إجمالي الطلاب" value={`${students.length}`} />
+        <StatCard title="إجمالي الطلاب" value={`${studentsList.length}`} />
       </section>
     </div>
   );

@@ -5,6 +5,7 @@ import {
   Wallet,
   BarChartBig,
   Search,
+  GraduationCap,
   Users,
   KeySquare,
   MonitorSmartphone,
@@ -17,6 +18,7 @@ const navigation = [
   { to: '/expenses', label: 'المصروفات', icon: Wallet },
   { to: '/analytics', label: 'الإحصاءات', icon: BarChartBig },
   { to: '/students', label: 'بحث الطالب', icon: Search },
+  { to: '/student-management', label: 'إدارة الطلاب', icon: GraduationCap },
   { to: '/groups', label: 'إدارة المجموعات', icon: Users },
   { to: '/guest-codes', label: 'أكواد الضيوف', icon: KeySquare },
   { to: '/guest', label: 'واجهة الزائر', icon: MonitorSmartphone }
