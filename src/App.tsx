@@ -12,7 +12,13 @@ import GuestView from './pages/GuestView';
 import AuthPage from './pages/AuthPage';
 
 const App = () => {
-  const [isAuthenticated, setIsAuthenticated] = useState(true);
+  const [isAuthenticated, setIsAuthenticated] = useState(() => {
+    if (typeof window === 'undefined') {
+      return false;
+    }
+
+    return Boolean(localStorage.getItem('authToken'));
+  });
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
@@ -20,6 +26,9 @@ const App = () => {
   const handleLogout = () => {
     setIsAuthenticated(false);
     setIsSidebarOpen(false);
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('authToken');
+    }
     navigate('/auth');
   };
 
@@ -34,6 +43,9 @@ const App = () => {
             <AuthPage
               onAuthSuccess={() => {
                 setIsAuthenticated(true);
+                if (typeof window !== 'undefined') {
+                  localStorage.setItem('authToken', 'demo-auth-token');
+                }
                 navigate('/', { replace: true });
               }}
               onGuestEnter={() => {
