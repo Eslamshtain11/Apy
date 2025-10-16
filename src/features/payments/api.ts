@@ -1,4 +1,4 @@
-import { supabase } from '../../lib/supabase';
+import { supabase, getUserId } from '../../lib/supabase';
 import type { Group, Payment, Student } from '../../types/db';
 
 export type GroupBalance = {
@@ -8,13 +8,6 @@ export type GroupBalance = {
 };
 
 export type PaymentEntity = Payment & { status?: 'paid' | 'pending' | 'late' };
-
-const ensureClient = () => {
-  if (!supabase) {
-    throw new Error('لم يتم تهيئة عميل Supabase.');
-  }
-  return supabase;
-};
 
 const normalizeStudent = (student: any): Student => ({
   id: student.id,
@@ -45,15 +38,16 @@ const normalizePayment = (payment: any): PaymentEntity => ({
 });
 
 const sortArabic = <T,>(items: T[], getter: (item: T) => string) =>
-  [...items].sort((a, b) => getter(a).localeCompare(getter(b), 'ar')); // ensures stable RTL sorting
+  [...items].sort((a, b) => getter(a).localeCompare(getter(b), 'ar'));
 
-export const fetchStudentsByName = async (query: string): Promise<Student[]> => {
-  const client = ensureClient();
+export const fetchStudentsByName = async (query: string, userId?: string): Promise<Student[]> => {
+  const ownerId = userId ?? (await getUserId());
   const normalized = query.trim();
 
-  let request = client
+  let request = supabase
     .from('students')
     .select('id, full_name, phone, group_id, active, created_at')
+    .eq('user_id', ownerId)
     .order('full_name', { ascending: true })
     .limit(50);
 
@@ -74,13 +68,14 @@ export const fetchStudentsByName = async (query: string): Promise<Student[]> => 
   return sortArabic(data.map(normalizeStudent), (student) => student.full_name);
 };
 
-export const fetchGroupsByName = async (query: string): Promise<Group[]> => {
-  const client = ensureClient();
+export const fetchGroupsByName = async (query: string, userId?: string): Promise<Group[]> => {
+  const ownerId = userId ?? (await getUserId());
   const normalized = query.trim();
 
-  let request = client
+  let request = supabase
     .from('groups')
     .select('id, name, description, due_total, created_at')
+    .eq('user_id', ownerId)
     .order('name', { ascending: true })
     .limit(50);
 
@@ -101,14 +96,15 @@ export const fetchGroupsByName = async (query: string): Promise<Group[]> => {
   return sortArabic(data.map(normalizeGroup), (group) => group.name);
 };
 
-export const fetchAllStudents = async (): Promise<Student[]> => fetchStudentsByName('');
-export const fetchAllGroups = async (): Promise<Group[]> => fetchGroupsByName('');
+export const fetchAllStudents = async (userId?: string): Promise<Student[]> => fetchStudentsByName('', userId);
+export const fetchAllGroups = async (userId?: string): Promise<Group[]> => fetchGroupsByName('', userId);
 
-export const fetchAllPayments = async (): Promise<PaymentEntity[]> => {
-  const client = ensureClient();
-  const { data, error } = await client
+export const fetchAllPayments = async (userId?: string): Promise<PaymentEntity[]> => {
+  const ownerId = userId ?? (await getUserId());
+  const { data, error } = await supabase
     .from('payments')
     .select('id, student_id, group_id, amount, method, paid_at, note')
+    .eq('user_id', ownerId)
     .order('paid_at', { ascending: false });
 
   if (error) {
@@ -122,11 +118,21 @@ export const fetchAllPayments = async (): Promise<PaymentEntity[]> => {
   return data.map(normalizePayment);
 };
 
-export const getGroupBalance = async (groupId: string): Promise<GroupBalance> => {
-  const client = ensureClient();
+export const getGroupBalance = async (groupId: string, userId?: string): Promise<GroupBalance> => {
+  const ownerId = userId ?? (await getUserId());
   const [{ data: groupData, error: groupError }, { data: totalsData, error: totalsError }] = await Promise.all([
-    client.from('groups').select('due_total').eq('id', groupId).maybeSingle(),
-    client.from('group_paid_totals').select('paid_total').eq('group_id', groupId).maybeSingle()
+    supabase
+      .from('groups')
+      .select('due_total')
+      .eq('user_id', ownerId)
+      .eq('id', groupId)
+      .maybeSingle(),
+    supabase
+      .from('group_paid_totals')
+      .select('paid_total')
+      .eq('user_id', ownerId)
+      .eq('group_id', groupId)
+      .maybeSingle()
   ]);
 
   if (groupError) {
@@ -143,17 +149,18 @@ export const getGroupBalance = async (groupId: string): Promise<GroupBalance> =>
   return { due_total: due, paid_total: paid, remaining };
 };
 
-export const createStudentIfNotExists = async (name: string, phone?: string): Promise<Student> => {
-  const client = ensureClient();
+export const createStudentIfNotExists = async (name: string, phone?: string, userId?: string): Promise<Student> => {
+  const ownerId = userId ?? (await getUserId());
   const trimmed = name.trim();
 
   if (!trimmed) {
     throw new Error('اسم الطالب مطلوب.');
   }
 
-  const { data: existing, error: fetchError } = await client
+  const { data: existing, error: fetchError } = await supabase
     .from('students')
     .select('id, full_name, phone, group_id, active, created_at')
+    .eq('user_id', ownerId)
     .eq('full_name', trimmed)
     .maybeSingle();
 
@@ -165,9 +172,9 @@ export const createStudentIfNotExists = async (name: string, phone?: string): Pr
     return normalizeStudent(existing);
   }
 
-  const { data, error } = await client
+  const { data, error } = await supabase
     .from('students')
-    .insert({ full_name: trimmed, phone: phone ?? null, active: true })
+    .insert({ full_name: trimmed, phone: phone ?? null, active: true, user_id: ownerId })
     .select('id, full_name, phone, group_id, active, created_at')
     .single();
 
@@ -186,10 +193,11 @@ export const createPayment = async (
     method: Payment['method'];
     paid_at: string;
     note?: string | null;
-  }
+  },
+  userId?: string
 ): Promise<Payment> => {
-  const client = ensureClient();
-  const { data, error } = await client
+  const ownerId = userId ?? (await getUserId());
+  const { data, error } = await supabase
     .from('payments')
     .insert({
       student_id: input.student_id ?? null,
@@ -197,7 +205,8 @@ export const createPayment = async (
       amount: input.amount,
       method: input.method,
       paid_at: input.paid_at,
-      note: input.note ?? null
+      note: input.note ?? null,
+      user_id: ownerId
     })
     .select('id, student_id, group_id, amount, method, paid_at, note')
     .single();
@@ -218,10 +227,11 @@ export const updatePayment = async (
     method: Payment['method'];
     paid_at: string;
     note?: string | null;
-  }
+  },
+  userId?: string
 ): Promise<Payment> => {
-  const client = ensureClient();
-  const { data, error } = await client
+  const ownerId = userId ?? (await getUserId());
+  const { data, error } = await supabase
     .from('payments')
     .update({
       student_id: input.student_id ?? null,
@@ -231,6 +241,7 @@ export const updatePayment = async (
       paid_at: input.paid_at,
       note: input.note ?? null
     })
+    .eq('user_id', ownerId)
     .eq('id', id)
     .select('id, student_id, group_id, amount, method, paid_at, note')
     .single();
@@ -242,9 +253,9 @@ export const updatePayment = async (
   return normalizePayment(data);
 };
 
-export const deletePayment = async (id: string): Promise<void> => {
-  const client = ensureClient();
-  const { error } = await client.from('payments').delete().eq('id', id);
+export const deletePayment = async (id: string, userId?: string): Promise<void> => {
+  const ownerId = userId ?? (await getUserId());
+  const { error } = await supabase.from('payments').delete().eq('user_id', ownerId).eq('id', id);
 
   if (error) {
     throw error;
@@ -259,21 +270,22 @@ export const createStudent = async ({
   full_name: string;
   phone?: string | null;
   group_id?: string | null;
-}): Promise<Student> => {
-  const client = ensureClient();
+}, userId?: string): Promise<Student> => {
+  const ownerId = userId ?? (await getUserId());
   const trimmedName = full_name.trim();
 
   if (!trimmedName) {
     throw new Error('اسم الطالب مطلوب.');
   }
 
-  const { data, error } = await client
+  const { data, error } = await supabase
     .from('students')
     .insert({
       full_name: trimmedName,
       phone: phone ?? null,
       group_id: group_id ?? null,
-      active: true
+      active: true,
+      user_id: ownerId
     })
     .select('id, full_name, phone, group_id, active, created_at')
     .single();
@@ -292,9 +304,10 @@ export const updateStudent = async (
     phone: string | null;
     group_id: string | null;
     active: boolean;
-  }>
+  }>,
+  userId?: string
 ): Promise<Student> => {
-  const client = ensureClient();
+  const ownerId = userId ?? (await getUserId());
   const payload: Record<string, unknown> = {};
 
   if (Object.prototype.hasOwnProperty.call(input, 'full_name')) {
@@ -310,18 +323,22 @@ export const updateStudent = async (
     payload.active = input.active;
   }
 
-  const query = client
+  const query = supabase
     .from('students')
     .update(payload)
+    .eq('user_id', ownerId)
     .eq('id', id)
     .select('id, full_name, phone, group_id, active, created_at')
     .single();
 
-  const { data, error } = Object.keys(payload).length ? await query : await client
-    .from('students')
-    .select('id, full_name, phone, group_id, active, created_at')
-    .eq('id', id)
-    .single();
+  const { data, error } = Object.keys(payload).length
+    ? await query
+    : await supabase
+        .from('students')
+        .select('id, full_name, phone, group_id, active, created_at')
+        .eq('user_id', ownerId)
+        .eq('id', id)
+        .single();
 
   if (error) {
     throw error;
@@ -330,9 +347,9 @@ export const updateStudent = async (
   return normalizeStudent(data);
 };
 
-export const deleteStudent = async (id: string): Promise<void> => {
-  const client = ensureClient();
-  const { error } = await client.from('students').delete().eq('id', id);
+export const deleteStudent = async (id: string, userId?: string): Promise<void> => {
+  const ownerId = userId ?? (await getUserId());
+  const { error } = await supabase.from('students').delete().eq('user_id', ownerId).eq('id', id);
 
   if (error) {
     throw error;
@@ -347,20 +364,21 @@ export const createGroupRecord = async ({
   name: string;
   description?: string | null;
   due_total?: number;
-}): Promise<Group> => {
-  const client = ensureClient();
+}, userId?: string): Promise<Group> => {
+  const ownerId = userId ?? (await getUserId());
   const trimmedName = name.trim();
 
   if (!trimmedName) {
     throw new Error('اسم المجموعة مطلوب.');
   }
 
-  const { data, error } = await client
+  const { data, error } = await supabase
     .from('groups')
     .insert({
       name: trimmedName,
       description: description ?? null,
-      due_total: Number(due_total ?? 0)
+      due_total: Number(due_total ?? 0),
+      user_id: ownerId
     })
     .select('id, name, description, due_total, created_at')
     .single();
@@ -372,19 +390,23 @@ export const createGroupRecord = async ({
   return normalizeGroup(data);
 };
 
-export const deleteGroupRecord = async (id: string): Promise<void> => {
-  const client = ensureClient();
-  const { error } = await client.from('groups').delete().eq('id', id);
+export const deleteGroupRecord = async (id: string, userId?: string): Promise<void> => {
+  const ownerId = userId ?? (await getUserId());
+  const { error } = await supabase.from('groups').delete().eq('user_id', ownerId).eq('id', id);
 
   if (error) {
     throw error;
   }
 };
 
-export const assignStudentsToGroup = async (groupId: string, studentIds: string[]): Promise<void> => {
-  const client = ensureClient();
+export const assignStudentsToGroup = async (groupId: string, studentIds: string[], userId?: string): Promise<void> => {
+  const ownerId = userId ?? (await getUserId());
 
-  const { error: clearError } = await client.from('students').update({ group_id: null }).eq('group_id', groupId);
+  const { error: clearError } = await supabase
+    .from('students')
+    .update({ group_id: null })
+    .eq('user_id', ownerId)
+    .eq('group_id', groupId);
   if (clearError) {
     throw clearError;
   }
@@ -393,12 +415,14 @@ export const assignStudentsToGroup = async (groupId: string, studentIds: string[
     return;
   }
 
-  const { error: assignError } = await client
+  const { error: assignError } = await supabase
     .from('students')
     .update({ group_id: groupId })
+    .eq('user_id', ownerId)
     .in('id', studentIds);
 
   if (assignError) {
     throw assignError;
   }
 };
+

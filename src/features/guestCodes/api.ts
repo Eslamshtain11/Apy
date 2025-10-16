@@ -1,4 +1,4 @@
-import { supabase } from '../../lib/supabase';
+import { supabase, getUserId } from '../../lib/supabase';
 
 export interface GuestCodeRecord {
   id: string;
@@ -9,18 +9,12 @@ export interface GuestCodeRecord {
   expires_at?: string | null;
 }
 
-const ensureClient = () => {
-  if (!supabase) {
-    throw new Error('لم يتم تهيئة عميل Supabase.');
-  }
-  return supabase;
-};
-
-export const fetchActiveGuestCode = async (): Promise<GuestCodeRecord | null> => {
-  const client = ensureClient();
-  const { data, error } = await client
+export const fetchActiveGuestCode = async (userId?: string): Promise<GuestCodeRecord | null> => {
+  const ownerId = userId ?? (await getUserId());
+  const { data, error } = await supabase
     .from('guest_codes')
     .select('id, code, active, created_at, updated_at, expires_at')
+    .eq('user_id', ownerId)
     .eq('active', true)
     .order('updated_at', { ascending: false })
     .limit(1)
@@ -40,22 +34,26 @@ export const fetchActiveGuestCode = async (): Promise<GuestCodeRecord | null> =>
   } as GuestCodeRecord;
 };
 
-export const generateGuestCode = async (code: string): Promise<GuestCodeRecord> => {
-  const client = ensureClient();
+export const generateGuestCode = async (code: string, userId?: string): Promise<GuestCodeRecord> => {
+  const ownerId = userId ?? (await getUserId());
   const normalized = code.trim().toUpperCase();
 
   if (!normalized) {
     throw new Error('الكود الجديد مطلوب.');
   }
 
-  const { error: deactivateError } = await client.from('guest_codes').update({ active: false }).eq('active', true);
+  const { error: deactivateError } = await supabase
+    .from('guest_codes')
+    .update({ active: false })
+    .eq('user_id', ownerId)
+    .eq('active', true);
   if (deactivateError) {
     throw deactivateError;
   }
 
-  const { data, error } = await client
+  const { data, error } = await supabase
     .from('guest_codes')
-    .insert({ code: normalized, active: true })
+    .insert({ code: normalized, active: true, user_id: ownerId })
     .select('id, code, active, created_at, updated_at, expires_at')
     .single();
 
@@ -69,9 +67,13 @@ export const generateGuestCode = async (code: string): Promise<GuestCodeRecord> 
   } as GuestCodeRecord;
 };
 
-export const deactivateGuestCodes = async (): Promise<void> => {
-  const client = ensureClient();
-  const { error } = await client.from('guest_codes').update({ active: false }).eq('active', true);
+export const deactivateGuestCodes = async (userId?: string): Promise<void> => {
+  const ownerId = userId ?? (await getUserId());
+  const { error } = await supabase
+    .from('guest_codes')
+    .update({ active: false })
+    .eq('user_id', ownerId)
+    .eq('active', true);
 
   if (error) {
     throw error;
@@ -79,11 +81,10 @@ export const deactivateGuestCodes = async (): Promise<void> => {
 };
 
 export const verifyGuestCode = async (code: string): Promise<boolean> => {
-  const client = ensureClient();
   const normalized = code.trim().toUpperCase();
   if (!normalized) return false;
 
-  const { data, error } = await client
+  const { data, error } = await supabase
     .from('guest_codes')
     .select('code, active')
     .eq('code', normalized)
@@ -96,3 +97,4 @@ export const verifyGuestCode = async (code: string): Promise<boolean> => {
 
   return Boolean(data?.active);
 };
+

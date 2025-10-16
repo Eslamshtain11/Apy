@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
+import type { Session } from '@supabase/supabase-js';
 import AppLayout from './components/AppLayout';
 import Dashboard from './pages/Dashboard';
 import Payments from './pages/Payments';
@@ -11,27 +12,90 @@ import Groups from './pages/Groups';
 import GuestCodes from './pages/GuestCodes';
 import GuestView from './pages/GuestView';
 import AuthPage from './pages/AuthPage';
+import { AppDataProvider } from './contexts/AppDataContext';
+import { supabase } from './lib/supabase';
 
 const App = () => {
-  const [isAuthenticated, setIsAuthenticated] = useState(() => {
-    if (typeof window === 'undefined') {
-      return false;
-    }
-
-    return Boolean(localStorage.getItem('authToken'));
+  const [session, setSession] = useState<Session | null>(null);
+  const [initializing, setInitializing] = useState(true);
+  const [profile, setProfile] = useState<{ name: string | null; phone: string | null }>({
+    name: null,
+    phone: null
   });
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
 
-  const handleLogout = () => {
-    setIsAuthenticated(false);
-    setIsSidebarOpen(false);
-    if (typeof window !== 'undefined') {
-      localStorage.removeItem('authToken');
+  useEffect(() => {
+    let active = true;
+    const init = async () => {
+      const { data } = await supabase.auth.getSession();
+      if (!active) return;
+      setSession(data.session ?? null);
+      setInitializing(false);
+    };
+
+    void init();
+
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, newSession) => {
+      if (!active) return;
+      setSession(newSession);
+    });
+
+    return () => {
+      active = false;
+      listener.subscription.unsubscribe();
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    if (!session?.user?.id) {
+      setProfile({ name: null, phone: null });
+      return;
     }
-    navigate('/auth');
+
+    const loadProfile = async () => {
+      const { data, error } = await supabase
+        .from('users')
+        .select('name, phone')
+        .eq('id', session.user.id)
+        .maybeSingle();
+
+      if (!active) return;
+      if (error && error.code !== 'PGRST116') {
+        console.error(error);
+        setProfile({ name: null, phone: null });
+        return;
+      }
+
+      setProfile({ name: data?.name ?? null, phone: data?.phone ?? null });
+    };
+
+    void loadProfile();
+
+    return () => {
+      active = false;
+    };
+  }, [session?.user?.id]);
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    setIsSidebarOpen(false);
+    navigate('/auth', { replace: true });
   };
+
+  if (initializing) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-brand-blue text-brand-light">
+        <div className="rounded-2xl border border-white/10 bg-brand-navy/60 px-8 py-6 text-brand-secondary">
+          جارٍ التحقق من الجلسة...
+        </div>
+      </div>
+    );
+  }
+
+  const isAuthenticated = Boolean(session);
 
   return (
     <Routes>
@@ -43,10 +107,6 @@ const App = () => {
           ) : (
             <AuthPage
               onAuthSuccess={() => {
-                setIsAuthenticated(true);
-                if (typeof window !== 'undefined') {
-                  localStorage.setItem('authToken', 'demo-auth-token');
-                }
                 navigate('/', { replace: true });
               }}
               onGuestEnter={() => {
@@ -56,17 +116,28 @@ const App = () => {
           )
         }
       />
-      <Route path="/guest" element={<GuestView />} />
+      <Route
+        path="/guest"
+        element={
+          <AppDataProvider userId="">
+            <GuestView />
+          </AppDataProvider>
+        }
+      />
       <Route
         path="/"
         element={
-          isAuthenticated ? (
-            <AppLayout
-              isSidebarOpen={isSidebarOpen}
-              onToggleSidebar={() => setIsSidebarOpen((state) => !state)}
-              onCloseSidebar={() => setIsSidebarOpen(false)}
-              onLogout={handleLogout}
-            />
+          isAuthenticated && session?.user ? (
+            <AppDataProvider userId={session.user.id}>
+              <AppLayout
+                isSidebarOpen={isSidebarOpen}
+                onToggleSidebar={() => setIsSidebarOpen((state) => !state)}
+                onCloseSidebar={() => setIsSidebarOpen(false)}
+                onLogout={handleLogout}
+                userName={profile.name ?? ''}
+                userPhone={profile.phone ?? ''}
+              />
+            </AppDataProvider>
           ) : (
             <Navigate to="/auth" replace state={{ from: location.pathname }} />
           )

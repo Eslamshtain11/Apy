@@ -1,11 +1,10 @@
 -- ------------------------------------------------------------
--- Personal Accountant app schema setup for Supabase (Postgres)
+-- Personal Accountant multi-tenant schema for Supabase
 -- ------------------------------------------------------------
--- This script resets the core tables, recreates constraints,
--- indexes, and sample data required for the web application.
--- Run inside the Supabase SQL editor.
+-- Run this script inside the Supabase SQL editor to rebuild the
+-- schema with Row Level Security and user-specific isolation.
+-- ------------------------------------------------------------
 
--- Enable required extensions for UUID generation.
 create extension if not exists "uuid-ossp";
 create extension if not exists pgcrypto;
 
@@ -31,71 +30,125 @@ drop table if exists students cascade;
 drop table if exists groups cascade;
 drop table if exists users cascade;
 
--- Users table stores account owners (tutors).
+-- -----------------------------------------------------------------
+-- Users profile table (mirrors auth.users with additional metadata)
+-- -----------------------------------------------------------------
 create table users (
-  id uuid primary key default gen_random_uuid(),
-  name text not null,
-  phone text not null unique,
-  password text not null,
-  created_at timestamptz not null default now()
+  id uuid primary key references auth.users(id) on delete cascade,
+  name text,
+  phone text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
 );
 
--- Groups represent classes or cohorts.
+create trigger users_set_updated
+before update on users
+for each row
+execute function set_updated_at();
+
+-- -----------------------------------------------------------------
+-- Groups represent classes or cohorts (scoped per user)
+-- -----------------------------------------------------------------
 create table groups (
   id uuid primary key default gen_random_uuid(),
+  user_id uuid not null default auth.uid(),
   name text not null,
   description text,
   due_total numeric(12,2) not null default 0 check (due_total >= 0),
   created_at timestamptz not null default now(),
-  constraint groups_name_unique unique (name)
+  updated_at timestamptz not null default now()
 );
 
--- Students optionally belong to a group.
+create trigger groups_set_updated
+before update on groups
+for each row
+execute function set_updated_at();
+
+create unique index if not exists idx_groups_user_name on groups(user_id, name);
+create index if not exists idx_groups_user on groups(user_id);
+
+-- -----------------------------------------------------------------
+-- Students optionally belong to a group (scoped per user)
+-- -----------------------------------------------------------------
 create table students (
   id uuid primary key default gen_random_uuid(),
+  user_id uuid not null default auth.uid(),
   full_name text not null,
   phone text,
   group_id uuid references groups(id) on delete set null,
   active boolean not null default true,
   created_at timestamptz not null default now(),
-  constraint students_full_name_phone_unique unique (full_name, phone)
+  updated_at timestamptz not null default now(),
+  constraint students_unique_per_user unique (user_id, full_name, coalesce(phone, ''))
 );
 
-create index students_group_id_idx on students(group_id);
+create trigger students_set_updated
+before update on students
+for each row
+execute function set_updated_at();
 
--- Payments can be tied to a student, a group, or both.
+create index if not exists idx_students_user on students(user_id);
+create index if not exists idx_students_group on students(group_id);
+
+-- -----------------------------------------------------------------
+-- Payments can be tied to a student, a group، أو الاثنين معًا
+-- -----------------------------------------------------------------
 create table payments (
   id uuid primary key default gen_random_uuid(),
+  user_id uuid not null default auth.uid(),
   student_id uuid references students(id) on delete set null,
   group_id uuid references groups(id) on delete set null,
   amount numeric(12,2) not null check (amount > 0),
   method text not null check (method in ('cash', 'card', 'transfer')),
   paid_at date not null default current_date,
   note text,
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
 );
 
-create index payments_group_id_idx on payments(group_id);
-create index payments_student_id_idx on payments(student_id);
-create index payments_paid_at_idx on payments(paid_at);
+create trigger payments_set_updated
+before update on payments
+for each row
+execute function set_updated_at();
 
--- Expenses table for outgoing money.
+create index if not exists idx_payments_user on payments(user_id);
+create index if not exists idx_payments_student on payments(student_id);
+create index if not exists idx_payments_group on payments(group_id);
+create index if not exists idx_payments_paid_at on payments(paid_at);
+
+-- -----------------------------------------------------------------
+-- Expenses table for outgoing money (scoped per user)
+-- -----------------------------------------------------------------
 create table expenses (
   id uuid primary key default gen_random_uuid(),
+  user_id uuid not null default auth.uid(),
   description text not null,
   amount numeric(12,2) not null check (amount >= 0),
   spent_at date not null default current_date,
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
 );
 
--- Guest codes give temporary read-only access.
+create trigger expenses_set_updated
+before update on expenses
+for each row
+execute function set_updated_at();
+
+create index if not exists idx_expenses_user on expenses(user_id);
+create index if not exists idx_expenses_spent_at on expenses(spent_at);
+
+-- -----------------------------------------------------------------
+-- Guest codes (each tutor can issue their own)
+-- -----------------------------------------------------------------
 create table guest_codes (
   id uuid primary key default gen_random_uuid(),
-  code text not null unique,
+  user_id uuid not null default auth.uid(),
+  code text not null,
   active boolean not null default true,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
-  expires_at timestamptz
+  expires_at timestamptz,
+  constraint guest_codes_unique_per_user unique (user_id, code)
 );
 
 create trigger guest_codes_set_updated
@@ -103,14 +156,38 @@ before update on guest_codes
 for each row
 execute function set_updated_at();
 
--- User-specific settings (e.g., reminder days).
+create index if not exists idx_guest_codes_user on guest_codes(user_id);
+create index if not exists idx_guest_codes_active on guest_codes(active);
+
+-- -----------------------------------------------------------------
+-- User-specific settings
+-- -----------------------------------------------------------------
 create table settings (
-  user_id uuid primary key references users(id) on delete cascade,
+  user_id uuid primary key references auth.users(id) on delete cascade,
   reminder_days integer not null default 3 check (reminder_days >= 0),
   updated_at timestamptz not null default now()
 );
 
--- Enable Row Level Security with permissive policies for demo usage.
+create trigger settings_set_updated
+before update on settings
+for each row
+execute function set_updated_at();
+
+-- -----------------------------------------------------------------
+-- Aggregated view for paid totals per group (scoped per user)
+-- -----------------------------------------------------------------
+create or replace view group_paid_totals as
+select
+  g.user_id,
+  g.id as group_id,
+  coalesce(sum(p.amount), 0)::numeric(12,2) as paid_total
+from groups g
+left join payments p on p.group_id = g.id and p.user_id = g.user_id
+group by g.user_id, g.id;
+
+-- -----------------------------------------------------------------
+-- Row Level Security policies (owner-only)
+-- -----------------------------------------------------------------
 alter table users enable row level security;
 alter table groups enable row level security;
 alter table students enable row level security;
@@ -119,90 +196,43 @@ alter table expenses enable row level security;
 alter table guest_codes enable row level security;
 alter table settings enable row level security;
 
-create policy users_all on users for all using (true) with check (true);
-create policy groups_all on groups for all using (true) with check (true);
-create policy students_all on students for all using (true) with check (true);
-create policy payments_all on payments for all using (true) with check (true);
-create policy expenses_all on expenses for all using (true) with check (true);
-create policy guest_codes_all on guest_codes for all using (true) with check (true);
-create policy settings_all on settings for all using (true) with check (true);
+-- Users table: owners only
+create policy users_select_self on users for select using (id = auth.uid());
+create policy users_insert_self on users for insert with check (id = auth.uid());
+create policy users_update_self on users for update using (id = auth.uid()) with check (id = auth.uid());
+create policy users_delete_self on users for delete using (id = auth.uid());
 
--- View summarizing total paid per group.
-create or replace view group_paid_totals as
-select
-  g.id as group_id,
-  coalesce(sum(p.amount), 0)::numeric(12,2) as paid_total
-from groups g
-left join payments p on p.group_id = g.id
- group by g.id;
+-- Groups
+create policy groups_owner_select on groups for select using (user_id = auth.uid());
+create policy groups_owner_insert on groups for insert with check (user_id = auth.uid());
+create policy groups_owner_update on groups for update using (user_id = auth.uid()) with check (user_id = auth.uid());
+create policy groups_owner_delete on groups for delete using (user_id = auth.uid());
 
--- ------------------------------------------------------------
--- Seed data for testing and to keep the UI functional out of
--- the box. Adjust or remove in production.
--- ------------------------------------------------------------
+-- Students
+create policy students_owner_select on students for select using (user_id = auth.uid());
+create policy students_owner_insert on students for insert with check (user_id = auth.uid());
+create policy students_owner_update on students for update using (user_id = auth.uid()) with check (user_id = auth.uid());
+create policy students_owner_delete on students for delete using (user_id = auth.uid());
 
--- Create a default tutor.
-insert into users (name, phone, password)
-values ('أ. محمود السيد', '01000000000', '$2a$10$samplehashforlocaldev')
-on conflict (phone) do update set name = excluded.name;
+-- Payments
+create policy payments_owner_select on payments for select using (user_id = auth.uid());
+create policy payments_owner_insert on payments for insert with check (user_id = auth.uid());
+create policy payments_owner_update on payments for update using (user_id = auth.uid()) with check (user_id = auth.uid());
+create policy payments_owner_delete on payments for delete using (user_id = auth.uid());
 
--- Insert groups with target dues.
-insert into groups (name, description, due_total)
-values
-  ('مجموعة الفيزياء - ثالثة ثانوي', 'حصص أسبوعية للفيزياء', 12000.00),
-  ('مجموعة الرياضيات - ثانية ثانوي', 'مراجعات رياضيات مكثفة', 9500.00),
-  ('مجموعة الكيمياء - ثالثة ثانوي', 'تحضير للثانوية العامة', 8400.00)
-on conflict (name) do update set
-  description = excluded.description,
-  due_total = excluded.due_total;
+-- Expenses
+create policy expenses_owner_select on expenses for select using (user_id = auth.uid());
+create policy expenses_owner_insert on expenses for insert with check (user_id = auth.uid());
+create policy expenses_owner_update on expenses for update using (user_id = auth.uid()) with check (user_id = auth.uid());
+create policy expenses_owner_delete on expenses for delete using (user_id = auth.uid());
 
--- Insert students linked to groups.
-insert into students (full_name, phone, group_id)
-select 'أحمد علي', '01012345678', id from groups where name = 'مجموعة الفيزياء - ثالثة ثانوي'
-union all
-select 'سارة محمد', '01098765432', id from groups where name = 'مجموعة الفيزياء - ثالثة ثانوي'
-union all
-select 'محمود حسن', '01112312345', id from groups where name = 'مجموعة الرياضيات - ثانية ثانوي'
-union all
-select 'إيمان فؤاد', '01234567890', id from groups where name = 'مجموعة الكيمياء - ثالثة ثانوي'
-union all
-select 'يوسف خالد', null, id from groups where name = 'مجموعة الرياضيات - ثانية ثانوي'
-union all
-select 'ملك عمرو', '01055577889', id from groups where name = 'مجموعة الفيزياء - ثالثة ثانوي'
-union all
-select 'هدى عصام', '01066554432', id from groups where name = 'مجموعة الكيمياء - ثالثة ثانوي'
-on conflict (full_name, phone) do update set group_id = excluded.group_id;
+-- Guest codes (owner policies + read-only verification for anonymous guests)
+create policy guest_codes_owner_select on guest_codes for select to authenticated using (user_id = auth.uid());
+create policy guest_codes_owner_mutation on guest_codes for all to authenticated using (user_id = auth.uid()) with check (user_id = auth.uid());
+create policy guest_codes_verify_active on guest_codes for select to anon using (active);
 
--- Seed sample payments (student-level and group-level).
-insert into payments (student_id, group_id, amount, method, paid_at, note)
-select s.id, s.group_id, 1500.00, 'cash', current_date - 10, 'دفعة شهر مارس'
-from students s where s.full_name = 'أحمد علي'
-union all
-select s.id, s.group_id, 1500.00, 'transfer', current_date - 5, 'دفعة شهر مارس'
-from students s where s.full_name = 'سارة محمد';
-
-insert into payments (group_id, amount, method, paid_at, note)
-select g.id, 3200.00, 'card', current_date - 2, 'دفعة جماعية'
-from groups g where g.name = 'مجموعة الرياضيات - ثانية ثانوي'
-union all
-select g.id, 2500.00, 'cash', current_date - 1, 'دفعة جزء من المستحقات'
-from groups g where g.name = 'مجموعة الكيمياء - ثالثة ثانوي';
-
--- Seed expenses.
-insert into expenses (description, amount, spent_at)
-values
-  ('إيجار القاعة', 4000.00, current_date - 20),
-  ('أدوات تعليمية', 1200.00, current_date - 15),
-  ('إعلانات ممولة', 1800.00, current_date - 3);
-
--- Guest code sample.
-insert into guest_codes (code, active)
-values ('GUEST-12345', true)
-on conflict (code) do update set active = excluded.active, updated_at = now();
-
--- Default settings for the user.
-insert into settings (user_id, reminder_days)
-select id, 5 from users where phone = '01000000000'
-on conflict (user_id) do update set reminder_days = excluded.reminder_days, updated_at = now();
+-- Settings
+create policy settings_owner_select on settings for select using (user_id = auth.uid());
+create policy settings_owner_upsert on settings for all using (user_id = auth.uid()) with check (user_id = auth.uid());
 
 commit;

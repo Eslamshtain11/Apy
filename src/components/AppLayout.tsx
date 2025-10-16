@@ -8,9 +8,18 @@ type AppLayoutProps = {
   onToggleSidebar: () => void;
   onCloseSidebar: () => void;
   onLogout: () => void;
+  userName: string;
+  userPhone: string;
 };
 
-const AppLayout = ({ isSidebarOpen, onToggleSidebar, onCloseSidebar, onLogout }: AppLayoutProps) => {
+const AppLayout = ({
+  isSidebarOpen,
+  onToggleSidebar,
+  onCloseSidebar,
+  onLogout,
+  userName,
+  userPhone
+}: AppLayoutProps) => {
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const userMenuRef = useRef<HTMLDivElement>(null);
 
@@ -27,9 +36,18 @@ const AppLayout = ({ isSidebarOpen, onToggleSidebar, onCloseSidebar, onLogout }:
     return () => window.removeEventListener('mousedown', handleClickOutside);
   }, [isUserMenuOpen]);
 
+  const displayName = userName?.trim() || 'بدون اسم';
+  const displayPhone = userPhone?.trim() || '—';
+
   return (
     <div className="flex min-h-screen bg-brand-blue text-brand-light">
-      <Sidebar isOpen={isSidebarOpen} onClose={onCloseSidebar} onLogout={onLogout} />
+      <Sidebar
+        isOpen={isSidebarOpen}
+        onClose={onCloseSidebar}
+        onLogout={onLogout}
+        userName={displayName}
+        userPhone={displayPhone}
+      />
       <div className="flex flex-1 flex-col">
         <header className="sticky top-0 z-30 border-b border-white/5 bg-brand-blue/80 backdrop-blur-lg">
           <div className="flex items-center justify-between px-4 py-4 sm:px-6">
@@ -60,8 +78,8 @@ const AppLayout = ({ isSidebarOpen, onToggleSidebar, onCloseSidebar, onLogout }:
                 </button>
                 {isUserMenuOpen && (
                   <div className="absolute left-1/2 top-full mt-3 w-48 -translate-x-1/2 rounded-xl border border-white/10 bg-slate-900/95 p-3 text-right text-sm shadow-xl">
-                    <p className="text-xs text-brand-secondary">أ. سارة الجابري</p>
-                    <p className="text-[11px] text-brand-secondary/80">0100 123 4567</p>
+                    <p className="text-xs text-brand-secondary">{displayName}</p>
+                    <p className="text-[11px] text-brand-secondary/80">{displayPhone}</p>
                     <button
                       onClick={() => {
                         setIsUserMenuOpen(false);
@@ -75,6 +93,10 @@ const AppLayout = ({ isSidebarOpen, onToggleSidebar, onCloseSidebar, onLogout }:
                 )}
               </div>
               <div className="hidden items-center gap-3 md:flex">
+                <div className="text-right text-xs text-brand-secondary">
+                  <p className="font-semibold text-brand-light">{displayName}</p>
+                  <p className="mt-1 text-[11px] text-brand-secondary/80">{displayPhone}</p>
+                </div>
                 <button
                   onClick={onLogout}
                   className="flex items-center gap-2 rounded-xl bg-red-500 px-4 py-2 text-sm font-semibold text-white transition hover:bg-red-600"

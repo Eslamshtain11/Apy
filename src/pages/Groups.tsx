@@ -13,6 +13,7 @@ import {
 } from '../features/payments/api';
 import { egp } from '../utils/format';
 import { toast } from 'sonner';
+import { useAppData } from '../contexts/AppDataContext';
 
 const Groups = () => {
   const [groupName, setGroupName] = useState('');
@@ -26,10 +27,12 @@ const Groups = () => {
   const [addingGroup, setAddingGroup] = useState(false);
   const [deletingGroup, setDeletingGroup] = useState<string | null>(null);
 
+  const { userId } = useAppData();
+
   const refreshData = useCallback(async () => {
     setLoading(true);
     try {
-      const [groups, students] = await Promise.all([fetchAllGroups(), fetchAllStudents()]);
+      const [groups, students] = await Promise.all([fetchAllGroups(userId), fetchAllStudents(userId)]);
       setGroupList(groups);
       setStudentsList(students);
       const drafts: Record<string, string[]> = {};
@@ -43,7 +46,7 @@ const Groups = () => {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [userId]);
 
   useEffect(() => {
     void refreshData();
@@ -68,7 +71,7 @@ const Groups = () => {
         await createGroupRecord({
           name: groupName.trim(),
           due_total: due
-        });
+        }, userId);
         toast.success('تم إنشاء المجموعة بنجاح');
         setGroupName('');
         setGroupTarget('');
@@ -96,7 +99,7 @@ const Groups = () => {
     setDeletingGroup(id);
     (async () => {
       try {
-        await deleteGroupRecord(id);
+        await deleteGroupRecord(id, userId);
         toast.success('تم حذف المجموعة');
         await refreshData();
       } catch (error_) {
@@ -127,7 +130,7 @@ const Groups = () => {
     const members = membershipDrafts[groupId] ?? [];
     setSavingMembership(groupId);
     try {
-      await assignStudentsToGroup(groupId, members);
+      await assignStudentsToGroup(groupId, members, userId);
       toast.success('تم تحديث طلاب المجموعة');
       await refreshData();
     } catch (error_) {

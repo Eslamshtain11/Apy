@@ -1,17 +1,32 @@
-import { createClient } from '@supabase/supabase-js';
+import { createClient, type SupabaseClient, type User } from '@supabase/supabase-js';
 
-const fallbackUrl = 'https://gegguiacbatjjbndgifs.supabase.co';
-const fallbackAnonKey =
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdlZ2d1aWFjYmF0ampibmRnaWZzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjA1NDc2MjAsImV4cCI6MjA3NjEyMzYyMH0.b07F-sjehvEciHD7aMXjhUKcRFUUtwaLfZ8B8xHVX90';
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-const supabaseUrl = (import.meta.env.VITE_SUPABASE_URL as string | undefined) ?? fallbackUrl;
-const supabaseAnonKey = (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined) ?? fallbackAnonKey;
+if (!supabaseUrl || !supabaseAnonKey) {
+  throw new Error('Supabase URL and anon key must be provided via environment variables.');
+}
 
-export const supabase =
-  supabaseUrl && supabaseAnonKey
-    ? createClient(supabaseUrl, supabaseAnonKey, {
-        auth: {
-          persistSession: false
-        }
-      })
-    : null;
+export const supabase: SupabaseClient = createClient(supabaseUrl, supabaseAnonKey, {
+  auth: {
+    persistSession: true,
+    autoRefreshToken: true
+  }
+});
+
+export const getCurrentUser = async (): Promise<User | null> => {
+  const { data, error } = await supabase.auth.getUser();
+  if (error) {
+    throw error;
+  }
+  return data.user ?? null;
+};
+
+export const getUserId = async (): Promise<string> => {
+  const user = await getCurrentUser();
+  if (!user) {
+    throw new Error('unauthorized');
+  }
+  return user.id;
+};
+

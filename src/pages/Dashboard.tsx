@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowDownToLine, ArrowUpRight, BellRing, Bot, CalendarRange, Download, Loader2, RefreshCw, Users } from 'lucide-react';
+import { ArrowDownToLine, ArrowUpRight, BellRing, CalendarRange, Download, Loader2, RefreshCw, Users } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import StatCard from '../components/StatCard';
 import PageHeader from '../components/PageHeader';
@@ -8,7 +8,6 @@ import { filterByMonth, formatCurrency, egp } from '../utils/format';
 import { useAppData } from '../contexts/AppDataContext';
 import { getGroupBalance, type GroupBalance } from '../features/payments/api';
 import { toast } from 'sonner';
-import LongCatAssistantDialog from '../features/assistant/LongCatAssistantDialog';
 
 const monthNames = new Intl.DateTimeFormat('ar-EG', { month: 'long' });
 
@@ -19,7 +18,6 @@ const Dashboard = () => {
   const [reminderDays, setReminderDays] = useState(3);
   const [balances, setBalances] = useState<Record<string, GroupBalance>>({});
   const [refreshing, setRefreshing] = useState(false);
-  const [assistantOpen, setAssistantOpen] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -166,13 +164,6 @@ const Dashboard = () => {
               <Download className="h-4 w-4" />
               تصدير لوحة التحكم
             </button>
-            <button
-              onClick={() => setAssistantOpen(true)}
-              className="flex items-center gap-2 rounded-xl bg-brand-gold px-4 py-3 text-sm font-semibold text-brand-blue transition hover:bg-brand-gold/90"
-            >
-              <Bot className="h-4 w-4" />
-              مساعد LONG Cat
-            </button>
           </div>
         }
       />
@@ -316,7 +307,6 @@ const Dashboard = () => {
           </div>
         </div>
       </section>
-      <LongCatAssistantDialog open={assistantOpen} onClose={() => setAssistantOpen(false)} />
     </div>
   );
 };

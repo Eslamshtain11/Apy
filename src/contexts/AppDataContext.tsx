@@ -21,6 +21,7 @@ import {
 import { fetchAllExpenses } from '../features/expenses/api';
 
 interface AppDataContextValue {
+  userId: string;
   loading: boolean;
   error: string | null;
   payments: PaymentEntity[];
@@ -36,7 +37,7 @@ interface AppDataContextValue {
 
 const AppDataContext = createContext<AppDataContextValue | undefined>(undefined);
 
-export const AppDataProvider = ({ children }: { children: ReactNode }) => {
+export const AppDataProvider = ({ userId, children }: { userId: string; children: ReactNode }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [payments, setPayments] = useState<PaymentEntity[]>([]);
@@ -45,15 +46,25 @@ export const AppDataProvider = ({ children }: { children: ReactNode }) => {
   const [expenses, setExpenses] = useState<ExpenseRecord[]>([]);
 
   const load = useCallback(async (): Promise<boolean> => {
+    if (!userId) {
+      setPayments([]);
+      setStudents([]);
+      setGroups([]);
+      setExpenses([]);
+      setError(null);
+      setLoading(false);
+      return false;
+    }
+
     setLoading(true);
     setError(null);
 
     try {
       const [studentsData, groupsData, paymentsData, expensesData] = await Promise.all([
-        fetchAllStudents(),
-        fetchAllGroups(),
-        fetchAllPayments(),
-        fetchAllExpenses()
+        fetchAllStudents(userId),
+        fetchAllGroups(userId),
+        fetchAllPayments(userId),
+        fetchAllExpenses(userId)
       ]);
 
       setStudents(studentsData);
@@ -69,14 +80,21 @@ export const AppDataProvider = ({ children }: { children: ReactNode }) => {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [userId]);
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    setPayments([]);
+    setStudents([]);
+    setGroups([]);
+    setExpenses([]);
+    if (userId) {
+      void load();
+    }
+  }, [userId, load]);
 
   const value = useMemo<AppDataContextValue>(
     () => ({
+      userId,
       loading,
       error,
       payments,
@@ -89,7 +107,7 @@ export const AppDataProvider = ({ children }: { children: ReactNode }) => {
       setGroups,
       setExpenses
     }),
-    [loading, error, payments, students, groups, expenses, load]
+    [userId, loading, error, payments, students, groups, expenses, load]
   );
 
   return <AppDataContext.Provider value={value}>{children}</AppDataContext.Provider>;
@@ -102,3 +120,4 @@ export const useAppData = (): AppDataContextValue => {
   }
   return context;
 };
+

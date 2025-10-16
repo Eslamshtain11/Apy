@@ -28,9 +28,21 @@ type SidebarProps = {
   isOpen: boolean;
   onClose: () => void;
   onLogout: () => void;
+  userName: string;
+  userPhone: string;
 };
 
-const SidebarContent = ({ onLogout, onNavigate }: { onLogout: () => void; onNavigate?: () => void }) => (
+const SidebarContent = ({
+  onLogout,
+  onNavigate,
+  userName,
+  userPhone
+}: {
+  onLogout: () => void;
+  onNavigate?: () => void;
+  userName: string;
+  userPhone: string;
+}) => (
   <div className="flex h-full flex-col bg-slate-950/90 text-gray-100 shadow-xl backdrop-blur-lg">
     <div className="flex items-center justify-between border-b border-white/10 px-6 py-6">
       <div className="space-y-1">
@@ -74,8 +86,8 @@ const SidebarContent = ({ onLogout, onNavigate }: { onLogout: () => void; onNavi
     </nav>
     <div className="border-t border-white/10 px-4 pb-[env(safe-area-inset-bottom)] pt-4 sm:px-6 sm:pt-6">
       <div className="rounded-2xl bg-slate-800/70 p-4">
-        <p className="text-sm font-semibold text-gray-100">أ. سارة الجابري</p>
-        <p className="mt-1 text-xs text-brand-secondary">0100 123 4567</p>
+        <p className="text-sm font-semibold text-gray-100">{userName}</p>
+        <p className="mt-1 text-xs text-brand-secondary">{userPhone}</p>
         <button
           onClick={onLogout}
           className="mt-4 w-full rounded-lg bg-red-500 px-4 py-2 text-right text-sm font-semibold text-white transition hover:bg-red-600"
@@ -87,7 +99,7 @@ const SidebarContent = ({ onLogout, onNavigate }: { onLogout: () => void; onNavi
   </div>
 );
 
-const Sidebar = ({ isOpen, onClose, onLogout }: SidebarProps) => {
+const Sidebar = ({ isOpen, onClose, onLogout, userName, userPhone }: SidebarProps) => {
   return (
     <>
       {isOpen && (
@@ -102,13 +114,15 @@ const Sidebar = ({ isOpen, onClose, onLogout }: SidebarProps) => {
                 onClose();
               }}
               onNavigate={onClose}
+              userName={userName}
+              userPhone={userPhone}
             />
           </div>
         </div>
       )}
       <div className="hidden w-72 shrink-0 md:block">
         <div className="sticky top-0 h-screen">
-          <SidebarContent onLogout={onLogout} />
+          <SidebarContent onLogout={onLogout} userName={userName} userPhone={userPhone} />
         </div>
       </div>
     </>

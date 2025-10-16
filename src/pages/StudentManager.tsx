@@ -14,6 +14,7 @@ import {
   fetchAllStudents,
   updateStudent
 } from '../features/payments/api';
+import { useAppData } from '../contexts/AppDataContext';
 
 const StudentManager = () => {
   const [students, setStudents] = useState<Student[]>([]);
@@ -32,10 +33,12 @@ const StudentManager = () => {
   const [membershipDrafts, setMembershipDrafts] = useState<Record<string, string[]>>({});
   const [membershipSaving, setMembershipSaving] = useState<string | null>(null);
 
+  const { userId } = useAppData();
+
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const [studentData, groupData] = await Promise.all([fetchAllStudents(), fetchAllGroups()]);
+      const [studentData, groupData] = await Promise.all([fetchAllStudents(userId), fetchAllGroups(userId)]);
       setStudents(studentData);
       setGroups(groupData);
       const drafts: Record<string, string[]> = {};
@@ -49,7 +52,7 @@ const StudentManager = () => {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [userId]);
 
   useEffect(() => {
     void loadData();

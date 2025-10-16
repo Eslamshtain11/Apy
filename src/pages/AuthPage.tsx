@@ -1,6 +1,7 @@
 import { FormEvent, useState } from 'react';
 import { CheckCircle2, LogIn, Phone, ShieldCheck, UserPlus } from 'lucide-react';
 import { verifyGuestCode } from '../features/guestCodes/api';
+import { supabase } from '../lib/supabase';
 
 type AuthMode = 'login' | 'register' | 'guest';
 
@@ -15,6 +16,11 @@ const AuthPage = ({ onAuthSuccess, onGuestEnter }: AuthPageProps) => {
   const [error, setError] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
 
+  const toEmail = (phone: string) => {
+    const digits = phone.replace(/\D/g, '');
+    return `${digits}@smart-accountant.local`;
+  };
+
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError('');
@@ -25,6 +31,26 @@ const AuthPage = ({ onAuthSuccess, onGuestEnter }: AuthPageProps) => {
         setError('يرجى إدخال رقم الهاتف وكلمة المرور.');
         return;
       }
+      const email = toEmail(formState.phone);
+      const { data, error: loginError } = await supabase.auth.signInWithPassword({
+        email,
+        password: formState.password
+      });
+
+      if (loginError) {
+        setError('تعذر تسجيل الدخول، تحقق من البيانات وحاول مرة أخرى.');
+        return;
+      }
+
+      if (data.user) {
+        const { error: profileError } = await supabase
+          .from('users')
+          .upsert({ id: data.user.id, phone: formState.phone.trim() || null }, { onConflict: 'id' });
+        if (profileError) {
+          console.error(profileError);
+        }
+      }
+
       setSuccessMessage('تم تسجيل الدخول بنجاح.');
       setTimeout(onAuthSuccess, 600);
     }
@@ -34,8 +60,48 @@ const AuthPage = ({ onAuthSuccess, onGuestEnter }: AuthPageProps) => {
         setError('يرجى إكمال كل الحقول المطلوبة.');
         return;
       }
-      setSuccessMessage('تم إنشاء الحساب بنجاح. يمكنك الآن تسجيل الدخول.');
-      setMode('login');
+      const email = toEmail(formState.phone);
+      const displayName = formState.name.trim();
+      const phone = formState.phone.trim();
+      const { data, error: signUpError } = await supabase.auth.signUp({
+        email,
+        password: formState.password,
+        options: {
+          data: {
+            name: displayName,
+            phone
+          }
+        }
+      });
+
+      if (signUpError) {
+        setError('تعذر إنشاء الحساب الجديد، حاول مرة أخرى.');
+        return;
+      }
+
+      if (data.user) {
+        const { error: profileError } = await supabase
+          .from('users')
+          .upsert(
+            {
+              id: data.user.id,
+              name: displayName,
+              phone
+            },
+            { onConflict: 'id' }
+          );
+        if (profileError) {
+          console.error(profileError);
+        }
+      }
+
+      if (data.session) {
+        setSuccessMessage('تم إنشاء الحساب وتسجيل الدخول بنجاح.');
+        setTimeout(onAuthSuccess, 600);
+      } else {
+        setSuccessMessage('تم إنشاء الحساب بنجاح. يمكنك الآن تسجيل الدخول.');
+        setMode('login');
+      }
     }
 
     if (mode === 'guest') {
