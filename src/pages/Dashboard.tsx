@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowDownToLine, ArrowUpRight, BellRing, CalendarRange, Download, Users } from 'lucide-react';
+import { ArrowDownToLine, ArrowUpRight, BellRing, Bot, CalendarRange, Download, Loader2, RefreshCw, Users } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import StatCard from '../components/StatCard';
 import PageHeader from '../components/PageHeader';
@@ -7,15 +7,19 @@ import EmptyState from '../components/EmptyState';
 import { filterByMonth, formatCurrency, egp } from '../utils/format';
 import { useAppData } from '../contexts/AppDataContext';
 import { getGroupBalance, type GroupBalance } from '../features/payments/api';
+import { toast } from 'sonner';
+import LongCatAssistantDialog from '../features/assistant/LongCatAssistantDialog';
 
 const monthNames = new Intl.DateTimeFormat('ar-EG', { month: 'long' });
 
 const Dashboard = () => {
   const navigate = useNavigate();
-  const { payments, expenses, students, groups, loading } = useAppData();
+  const { payments, expenses, students, groups, loading, refresh } = useAppData();
   const [selectedMonth, setSelectedMonth] = useState('all');
   const [reminderDays, setReminderDays] = useState(3);
   const [balances, setBalances] = useState<Record<string, GroupBalance>>({});
+  const [refreshing, setRefreshing] = useState(false);
+  const [assistantOpen, setAssistantOpen] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -141,11 +145,33 @@ const Dashboard = () => {
               ))}
             </select>
             <button
+              onClick={async () => {
+                setRefreshing(true);
+                const ok = await refresh();
+                if (ok) {
+                  toast.success('تم تحديث لوحة التحكم بالبيانات الفعلية.');
+                }
+                setRefreshing(false);
+              }}
+              disabled={refreshing}
+              className="flex items-center gap-2 rounded-xl border border-brand-gold/50 px-4 py-3 text-sm font-semibold text-brand-gold transition hover:bg-brand-gold/10 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {refreshing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+              {refreshing ? 'جارٍ التحديث' : 'تحديث البيانات'}
+            </button>
+            <button
               onClick={handleExportDashboard}
               className="flex items-center gap-2 rounded-xl border border-brand-gold/50 px-4 py-3 text-sm font-semibold text-brand-gold transition hover:bg-brand-gold/10"
             >
               <Download className="h-4 w-4" />
               تصدير لوحة التحكم
+            </button>
+            <button
+              onClick={() => setAssistantOpen(true)}
+              className="flex items-center gap-2 rounded-xl bg-brand-gold px-4 py-3 text-sm font-semibold text-brand-blue transition hover:bg-brand-gold/90"
+            >
+              <Bot className="h-4 w-4" />
+              مساعد LONG Cat
             </button>
           </div>
         }
@@ -290,6 +316,7 @@ const Dashboard = () => {
           </div>
         </div>
       </section>
+      <LongCatAssistantDialog open={assistantOpen} onClose={() => setAssistantOpen(false)} />
     </div>
   );
 };

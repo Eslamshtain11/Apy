@@ -27,7 +27,7 @@ interface AppDataContextValue {
   students: Student[];
   groups: Group[];
   expenses: ExpenseRecord[];
-  refresh: () => Promise<void>;
+  refresh: () => Promise<boolean>;
   setPayments: Dispatch<SetStateAction<PaymentEntity[]>>;
   setStudents: Dispatch<SetStateAction<Student[]>>;
   setGroups: Dispatch<SetStateAction<Group[]>>;
@@ -44,7 +44,7 @@ export const AppDataProvider = ({ children }: { children: ReactNode }) => {
   const [groups, setGroups] = useState<Group[]>([]);
   const [expenses, setExpenses] = useState<ExpenseRecord[]>([]);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (): Promise<boolean> => {
     setLoading(true);
     setError(null);
 
@@ -60,10 +60,12 @@ export const AppDataProvider = ({ children }: { children: ReactNode }) => {
       setGroups(groupsData);
       setPayments(paymentsData.map((payment) => ({ ...payment, status: payment.status ?? 'paid' })));
       setExpenses(expensesData);
+      return true;
     } catch (error_) {
       console.error(error_);
       setError('تعذر تحميل البيانات من Supabase');
       toast.error('تعذر تحميل البيانات من Supabase، تحقق من الاتصال.');
+      return false;
     } finally {
       setLoading(false);
     }

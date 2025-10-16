@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Loader2, PlusCircle, ShieldAlert, Trash } from 'lucide-react';
+import { CheckCircle2, Circle, Loader2, PlusCircle, ShieldAlert, Trash } from 'lucide-react';
 import PageHeader from '../components/PageHeader';
 import EmptyState from '../components/EmptyState';
 import StatCard from '../components/StatCard';
@@ -217,32 +217,34 @@ const Groups = () => {
                     </div>
                     <div>
                       <label className="mb-2 block text-xs text-brand-secondary">حدد الطلاب المنتسبين</label>
-                      <div className="max-h-48 space-y-2 overflow-y-auto rounded-xl border border-white/10 bg-brand-navy/40 p-2">
+                      <div className="max-h-56 space-y-2 overflow-y-auto rounded-xl border border-white/10 bg-brand-navy/40 p-2">
                         {studentsList.length ? (
                           studentsList.map((student) => {
                             const checked = (membershipDrafts[group.id] ?? []).includes(student.id);
                             return (
-                              <button
-                                type="button"
+                              <label
                                 key={student.id}
-                                onClick={() => toggleStudentSelection(group.id, student.id)}
-                                className={`flex w-full items-center justify-between rounded-lg border px-3 py-2 text-xs transition ${
+                                className={`flex w-full cursor-pointer items-center justify-between rounded-lg border px-3 py-2 text-xs transition ${
                                   checked
                                     ? 'border-brand-gold bg-brand-gold/10 text-brand-light'
                                     : 'border-white/10 bg-brand-navy/60 text-brand-secondary hover:border-brand-gold/40'
                                 }`}
                               >
                                 <span>{student.full_name}</span>
-                                <span
-                                  className={`flex h-5 w-5 items-center justify-center rounded-full border ${
-                                    checked
-                                      ? 'border-brand-gold bg-brand-gold text-brand-blue'
-                                      : 'border-white/20 text-brand-secondary'
-                                  }`}
-                                >
-                                  {checked ? '✓' : ''}
+                                <span className="flex items-center gap-2 text-brand-light">
+                                  <input
+                                    type="checkbox"
+                                    className="hidden"
+                                    checked={checked}
+                                    onChange={() => toggleStudentSelection(group.id, student.id)}
+                                  />
+                                  {checked ? (
+                                    <CheckCircle2 className="h-5 w-5 text-brand-gold" />
+                                  ) : (
+                                    <Circle className="h-5 w-5 text-brand-secondary" />
+                                  )}
                                 </span>
-                              </button>
+                              </label>
                             );
                           })
                         ) : (

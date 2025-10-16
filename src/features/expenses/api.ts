@@ -1,11 +1,14 @@
 import { supabase } from '../../lib/supabase';
-import { expenses as mockExpenses } from '../../data/mockData';
 import type { Expense } from '../../types/db';
 
 export type ExpenseRecord = Expense;
 
-const hasSupabase = Boolean(supabase);
-const localStore: ExpenseRecord[] = [...mockExpenses];
+const ensureClient = () => {
+  if (!supabase) {
+    throw new Error('لم يتم تهيئة عميل Supabase.');
+  }
+  return supabase;
+};
 
 const normalizeExpense = (expense: any): ExpenseRecord => ({
   id: expense.id,
@@ -16,95 +19,66 @@ const normalizeExpense = (expense: any): ExpenseRecord => ({
 });
 
 export const fetchAllExpenses = async (): Promise<ExpenseRecord[]> => {
-  if (hasSupabase && supabase) {
-    try {
-      const { data, error } = await supabase
-        .from('expenses')
-        .select('id, description, amount, spent_at, created_at')
-        .order('spent_at', { ascending: false });
+  const client = ensureClient();
+  const { data, error } = await client
+    .from('expenses')
+    .select('id, description, amount, spent_at, created_at')
+    .order('spent_at', { ascending: false });
 
-      if (error) {
-        console.error('failed to fetch expenses', error);
-      } else if (Array.isArray(data)) {
-        return data.map(normalizeExpense);
-      }
-    } catch (error) {
-      console.error('failed to fetch expenses', error);
-    }
+  if (error) {
+    throw error;
   }
 
-  return [...localStore];
+  if (!data) {
+    return [];
+  }
+
+  return data.map(normalizeExpense);
 };
 
-export const createExpense = async (input: { description: string; amount: number; spent_at: string }): Promise<ExpenseRecord> => {
-  if (hasSupabase && supabase) {
-    const { data, error } = await supabase
-      .from('expenses')
-      .insert({ description: input.description, amount: input.amount, spent_at: input.spent_at })
-      .select('id, description, amount, spent_at, created_at')
-      .single();
+export const createExpense = async (input: {
+  description: string;
+  amount: number;
+  spent_at: string;
+}): Promise<ExpenseRecord> => {
+  const client = ensureClient();
+  const { data, error } = await client
+    .from('expenses')
+    .insert({ description: input.description, amount: input.amount, spent_at: input.spent_at })
+    .select('id, description, amount, spent_at, created_at')
+    .single();
 
-    if (error) {
-      console.error('failed to create expense', error);
-      throw error;
-    }
-
-    return normalizeExpense(data);
+  if (error) {
+    throw error;
   }
 
-  const expense: ExpenseRecord = {
-    id: `exp-${Date.now()}`,
-    description: input.description,
-    amount: input.amount,
-    spent_at: input.spent_at,
-    created_at: new Date().toISOString()
-  };
-  localStore.unshift(expense);
-  return expense;
+  return normalizeExpense(data);
 };
 
 export const updateExpense = async (
   id: string,
   input: { description: string; amount: number; spent_at: string }
 ): Promise<ExpenseRecord> => {
-  if (hasSupabase && supabase) {
-    const { data, error } = await supabase
-      .from('expenses')
-      .update({ description: input.description, amount: input.amount, spent_at: input.spent_at })
-      .eq('id', id)
-      .select('id, description, amount, spent_at, created_at')
-      .single();
+  const client = ensureClient();
+  const { data, error } = await client
+    .from('expenses')
+    .update({ description: input.description, amount: input.amount, spent_at: input.spent_at })
+    .eq('id', id)
+    .select('id, description, amount, spent_at, created_at')
+    .single();
 
-    if (error) {
-      console.error('failed to update expense', error);
-      throw error;
-    }
-
-    return normalizeExpense(data);
+  if (error) {
+    throw error;
   }
 
-  const index = localStore.findIndex((expense) => expense.id === id);
-  if (index === -1) {
-    throw new Error('expense not found');
-  }
-
-  const updated: ExpenseRecord = { ...localStore[index], ...input };
-  localStore[index] = updated;
-  return updated;
+  return normalizeExpense(data);
 };
 
 export const deleteExpense = async (id: string): Promise<void> => {
-  if (hasSupabase && supabase) {
-    const { error } = await supabase.from('expenses').delete().eq('id', id);
-    if (error) {
-      console.error('failed to delete expense', error);
-      throw error;
-    }
-    return;
-  }
+  const client = ensureClient();
+  const { error } = await client.from('expenses').delete().eq('id', id);
 
-  const index = localStore.findIndex((expense) => expense.id === id);
-  if (index !== -1) {
-    localStore.splice(index, 1);
+  if (error) {
+    throw error;
   }
 };
